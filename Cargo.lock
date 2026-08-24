@@ -3402,28 +3402,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc0287524726960e07b119cebd01678f852f147742ae0d925e6a520dca956126"
 
 [[package]]
-name = "my-ecosystem-bevy"
-version = "0.2.2"
-dependencies = [
- "bevy",
- "bevy_rapier2d",
- "game-utils",
- "game-utils-bevy",
- "getrandom 0.2.17",
- "getrandom 0.3.4",
- "getrandom 0.4.3",
- "rand",
- "repose-bevy",
- "repose-core 0.28.1",
- "repose-material",
- "repose-render-wgpu",
- "repose-ui",
- "serde",
- "wasm-bindgen",
- "wgpu",
-]
-
-[[package]]
 name = "naga"
 version = "30.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4762,6 +4740,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "rozvp"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_rapier2d",
+ "game-utils",
+ "game-utils-bevy",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "getrandom 0.4.3",
+ "rand",
+ "repose-bevy",
+ "repose-core 0.28.1",
+ "repose-material",
+ "repose-render-wgpu",
+ "repose-ui",
+ "serde",
+ "wasm-bindgen",
+ "wgpu",
 ]
 
 [[package]]

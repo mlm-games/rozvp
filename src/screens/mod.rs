@@ -61,6 +61,6 @@ fn tick_loading(
         })
         .unwrap_or(true);
     if loaded && timer.0.tick(time.delta()).just_finished() {
-        tr.begin_to_state(AppState::InGame);
+        tr.begin_to_state(AppState::Title);
     }
 }

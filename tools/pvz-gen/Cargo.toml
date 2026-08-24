@@ -1,0 +1,30 @@
+[package]
+name = "pvz-gen"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+description = "Generates grayscale PvZ-style .ren animation rigs into assets/anims."
+publish = false
+
+[workspace]
+
+[lints.clippy]
+too_many_arguments = "allow"
+
+[dependencies]
+glam = "0.33"
+renamite-animation = { path = "../../../renamite/crates/renamite-animation" }
+renamite-geometry = { path = "../../../renamite/crates/renamite-geometry" }
+renamite-model = { path = "../../../renamite/crates/renamite-model" }
+renamite-machine = { path = "../../../renamite/crates/renamite-machine" }
+renamite-io-ren = { path = "../../../renamite/crates/renamite-io-ren" }
+
+image = { version = "0.25", default-features = false, features = ["png"] }
+repose-core = "0.28"
+renamite-behavior-common = { path = "../../../renamite/crates/renamite-behavior-common" }
+renamite-player = { path = "../../../renamite/crates/renamite-player" }
+renamite-render-bridge = { path = "../../../renamite/crates/renamite-render-bridge" }
+renamite-render-offscreen = { path = "../../../renamite/crates/renamite-render-offscreen" }
+
+[dev-dependencies]
+kurbo = "0.13"

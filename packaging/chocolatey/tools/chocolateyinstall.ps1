@@ -1,10 +1,10 @@
 $ErrorActionPreference = 'Stop'
 $toolsDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $packageArgs = @{
-    packageName   = 'my-ecosystem-bevy'
+    packageName   = 'rozvp'
     fileType      = 'exe'
-    url           = 'https://github.com/mlm-games/my-ecosystem-bevy/releases/latest'
-    softwareName  = 'my-ecosystem-bevy'
+    url           = 'https://github.com.mlm-games.rozvp/releases/latest'
+    softwareName  = 'rozvp'
     checksum      = ''
     checksumType  = 'sha256'
 }

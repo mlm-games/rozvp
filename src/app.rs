@@ -7,8 +7,8 @@ use repose_core::{prelude::Modifier, remember};
 use repose_ui::overlay::OverlayHandle;
 
 use crate::asset_tracking::AssetsLoading;
-use crate::demo::DemoPlugin;
 use crate::dev_tools::DevToolsPlugin;
+use crate::game::GamePlugin;
 use crate::menus::{self, UiAction, UiBridge};
 use crate::save::SaveData;
 use crate::screens::ScreensPlugin;
@@ -19,19 +19,27 @@ use game_utils_bevy::{
     i18n::{self, I18nPlugin, LocaleResources},
     post_process::{ScreenEffectSettings, sync_post_process_settings},
     save::{SaveManager, SavePlugin},
-    screen_effects::CameraBase,
+    screen_effects::{CameraBase, FlashWhite},
     time_scale::TimeScaleControl,
     transitions::Transition,
 };
 
 const TRANSLATION_KEYS: &[&str] = &[
     "app-title",
-    "start-game",
+    "adventure",
+    "mini-games",
+    "puzzle",
+    "survival",
+    "zen-garden",
+    "almanac",
+    "store",
     "settings",
-    "credits",
+    "help",
     "quit",
     "paused",
     "resume",
+    "restart",
+    "main-menu",
     "quit-to-title",
     "save",
     "back",
@@ -39,9 +47,16 @@ const TRANSLATION_KEYS: &[&str] = &[
     "sfx-volume",
     "music-volume",
     "language",
-    "score",
-    "best",
-    "controls-hint",
+    "choose-your-seeds",
+    "your-bank",
+    "available-packets",
+    "lets-rock",
+    "level-complete",
+    "game-over",
+    "zombies-ate-your-brains",
+    "not-enough-sun",
+    "try-again",
+    "continue",
     "loading",
 ];
 
@@ -74,10 +89,37 @@ pub enum OverlayMenu {
     Settings,
     Credits,
     Pause,
+    SeedChooser,
+    Award,
+    LevelComplete,
+    GameOver,
+    NotEnoughSun,
 }
 
 #[derive(Resource, Default)]
 pub struct PendingUnpause(pub Option<Timer>);
+
+/// Set by the UI when the player confirms a restart; consumed by the game's
+/// `apply_restart` system (which runs even while paused, so it works from
+/// GameOver/Pause overlays).
+#[derive(Resource, Default)]
+pub struct PendingRestart(pub bool);
+
+#[derive(Clone, Debug, Default)]
+pub struct SeedSlotUi {
+    pub seed_name: String,
+    pub cost: i32,
+    /// 0.0..=1.0 recharge progress (1 = ready).
+    pub ready: f32,
+    pub affordable: bool,
+    pub selected: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AdviceUi {
+    pub text: String,
+    pub visible: bool,
+}
 
 #[derive(Resource, Clone)]
 pub struct SharedUi {
@@ -88,14 +130,29 @@ pub struct SharedUi {
     pub master_vol: f32,
     pub sfx_vol: f32,
     pub music_vol: f32,
+    #[allow(dead_code)] // kept so saves stay compatible
     pub high_score: u32,
-    pub score: u32,
     pub transition_alpha: f32,
     pub flash_alpha: f32,
     pub language: String,
     pub saved_language: String,
     pub available_languages: Vec<String>,
     pub translations: HashMap<String, String>,
+
+    pub sun: i32,
+    pub level_name: String,
+    /// 0..=1 wave progress meter.
+    pub progress: f32,
+    pub flags_total: u32,
+    pub flags_done: u32,
+    pub seed_bank: Vec<SeedSlotUi>,
+    pub shovel_selected: bool,
+    pub advice: AdviceUi,
+
+    pub chooser_picks: Vec<String>,
+    pub adventure_level: u32,
+    pub unlocked_seed_names: Vec<String>,
+    pub pending_award_seed: Option<String>,
 }
 
 impl Default for SharedUi {
@@ -109,13 +166,39 @@ impl Default for SharedUi {
             sfx_vol: 1.0,
             music_vol: 0.8,
             high_score: 0,
-            score: 0,
             transition_alpha: 0.0,
             flash_alpha: 0.0,
             language: "en".to_string(),
             saved_language: "en".to_string(),
             available_languages: vec!["en".to_string()],
             translations: HashMap::new(),
+            sun: 50,
+            level_name: crate::game::level_flow::level_label(0),
+            progress: 0.0,
+            flags_total: 1,
+            flags_done: 0,
+            seed_bank: vec![
+                SeedSlotUi {
+                    seed_name: "Sunflower".into(),
+                    cost: 50,
+                    ready: 1.0,
+                    affordable: true,
+                    selected: false,
+                },
+                SeedSlotUi {
+                    seed_name: "Peashooter".into(),
+                    cost: 100,
+                    ready: 1.0,
+                    affordable: true,
+                    selected: false,
+                },
+            ],
+            shovel_selected: false,
+            advice: AdviceUi::default(),
+            chooser_picks: vec!["Sunflower".into(), "Peashooter".into()],
+            adventure_level: 0,
+            unlocked_seed_names: crate::game::level_flow::starting_unlocked_seeds(),
+            pending_award_seed: None,
         }
     }
 }
@@ -133,6 +216,7 @@ impl Plugin for AppPlugin {
             .insert_resource(Paused(false))
             .insert_resource(OverlayMenu::None)
             .insert_resource(PendingUnpause(None))
+            .insert_resource(PendingRestart::default())
             .insert_resource(UiBridge {
                 shared: shared.clone(),
                 actions: actions.clone(),
@@ -159,12 +243,12 @@ impl Plugin for AppPlugin {
                 SavePlugin::<SaveData>::new(SaveManager::new(
                     "com",
                     "mlm-games",
-                    "my-ecosystem-bevy",
+                    "rozvp",
                     "save.ron",
                     1,
                 )),
                 ScreensPlugin,
-                DemoPlugin,
+                GamePlugin,
                 DevToolsPlugin,
             ))
             .add_systems(Startup, setup_camera)
@@ -184,7 +268,11 @@ impl Plugin for AppPlugin {
     }
 }
 
-fn apply_saved_settings(save: Res<SaveData>, mut locale: ResMut<LocaleResources>) {
+fn apply_saved_settings(
+    save: Res<SaveData>,
+    bridge: Res<UiBridge>,
+    mut locale: ResMut<LocaleResources>,
+) {
     if !save.is_added() && !save.is_changed() {
         return;
     }
@@ -195,6 +283,22 @@ fn apply_saved_settings(save: Res<SaveData>, mut locale: ResMut<LocaleResources>
     {
         locale.set_locale(&save.settings.language);
     }
+    // Load adventure progress + unlocks (save is authoritative on load).
+    if let Ok(mut ui) = bridge.shared.lock() {
+        ui.adventure_level = save.adventure_level;
+        if !save.unlocked_seed_names.is_empty() {
+            ui.unlocked_seed_names = save.unlocked_seed_names.clone();
+        } else {
+            ui.unlocked_seed_names = crate::game::level_flow::starting_unlocked_seeds();
+        }
+        crate::game::level_flow::normalize_progress_ui(&mut ui);
+    }
+}
+
+/// Copies runtime progress into the save struct.
+fn persist_progress(save: &mut SaveData, ui: &SharedUi) {
+    save.adventure_level = ui.adventure_level;
+    save.unlocked_seed_names = ui.unlocked_seed_names.clone();
 }
 
 fn setup_camera(mut commands: Commands) {
@@ -215,9 +319,8 @@ fn sync_shared_ui(
     overlay: Res<OverlayMenu>,
     bridge: Res<UiBridge>,
     save: Res<SaveData>,
-    score: Option<Res<crate::demo::Score>>,
     transition: Res<Transition<AppState>>,
-    flash: Res<game_utils_bevy::screen_effects::FlashWhite>,
+    flash: Res<FlashWhite>,
     locale: Res<LocaleResources>,
     mut channels: ResMut<AudioChannels>,
     loading: Option<Res<AssetsLoading>>,
@@ -229,8 +332,6 @@ fn sync_shared_ui(
     ui.phase = state.get().clone();
     ui.paused = paused.0;
     ui.overlay = *overlay;
-    ui.high_score = save.high_score;
-    ui.score = score.map(|s| s.0).unwrap_or(0);
     if *overlay != OverlayMenu::Settings {
         ui.master_vol = save.settings.master_volume;
         ui.sfx_vol = save.settings.sfx_volume;
@@ -275,6 +376,29 @@ fn set_vol(bridge: &UiBridge, field: impl Fn(&mut SharedUi) -> &mut f32, v: f32)
     }
 }
 
+/// All seeds the chooser knows about; visibility is gated by
+/// `SharedUi.unlocked_seed_names` (see level_flow).
+pub const CHOOSER_SEEDS: &[&str] = &[
+    "Sunflower",
+    "Peashooter",
+    "Wall-nut",
+    "Cherry Bomb",
+    "Potato Mine",
+    "Snow Pea",
+    "Chomper",
+    "Repeater",
+    "Squash",
+    "Threepeater",
+    "Jalapeno",
+    "Spikeweed",
+    "Torchwood",
+    "Tall-nut",
+    "Garlic",
+    "Hypno-shroom",
+    "Ice-shroom",
+    "Doom-shroom",
+];
+
 fn process_ui_actions(
     bridge: Res<UiBridge>,
     mut paused: ResMut<Paused>,
@@ -284,6 +408,7 @@ fn process_ui_actions(
     mut transition: ResMut<Transition<AppState>>,
     manager: Res<SaveManager>,
     mut pending_unpause: ResMut<PendingUnpause>,
+    mut pending_restart: ResMut<PendingRestart>,
     mut locale: ResMut<LocaleResources>,
 ) {
     let Ok(mut q) = bridge.actions.lock() else {
@@ -291,9 +416,161 @@ fn process_ui_actions(
     };
     for action in q.drain(..) {
         match action {
-            UiAction::StartGame => {
-                transition.begin_to_state(AppState::Loading);
+            UiAction::OpenAdventure => {
+                *overlay = OverlayMenu::SeedChooser;
             }
+            UiAction::ChooserPick(name) => {
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    if !ui.chooser_picks.contains(&name) && ui.chooser_picks.len() < 10 {
+                        ui.chooser_picks.push(name);
+                    }
+                }
+            }
+            UiAction::ChooserRemove(i) => {
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    if i < ui.chooser_picks.len() {
+                        ui.chooser_picks.remove(i);
+                    }
+                }
+            }
+            UiAction::ConfirmSeedChooser => {
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    crate::game::level_flow::normalize_progress_ui(&mut ui);
+                    // Chooser only offers unlocked seeds; prune any stale picks.
+                    let unlocked = ui.unlocked_seed_names.clone();
+                    ui.chooser_picks.retain(|p| unlocked.iter().any(|u| u == p));
+                    persist_progress(&mut save, &ui);
+                }
+                let _ = manager.save(&*save);
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    if ui.chooser_picks.is_empty() {
+                        continue;
+                    }
+                    ui.seed_bank = ui
+                        .chooser_picks
+                        .iter()
+                        .map(|name| {
+                            let cost = crate::game::defs::seed_def(name)
+                                .map(|d| d.cost)
+                                .unwrap_or(100);
+                            crate::app::SeedSlotUi {
+                                seed_name: name.clone(),
+                                cost,
+                                ready: 1.0,
+                                affordable: true,
+                                selected: false,
+                            }
+                        })
+                        .collect();
+                    ui.sun = 50;
+                    ui.progress = 0.0;
+                    ui.flags_done = 0;
+                }
+                *overlay = OverlayMenu::None;
+                transition.begin_to_state(AppState::InGame);
+            }
+            UiAction::DialogOk => {
+                match *overlay {
+                    OverlayMenu::LevelComplete => {
+                        // Decide the award first, then route.
+                        let award = bridge
+                            .shared
+                            .lock()
+                            .ok()
+                            .map(|ui| {
+                                crate::game::level_flow::award_for_completed_level(
+                                    ui.adventure_level,
+                                )
+                            })
+                            .flatten();
+
+                        if let Some(seed) = award {
+                            if let Ok(mut ui) = bridge.shared.lock() {
+                                ui.pending_award_seed = Some(seed.to_string());
+                            }
+                            *overlay = OverlayMenu::Award;
+                        } else {
+                            if let Ok(mut ui) = bridge.shared.lock() {
+                                crate::game::level_flow::advance_after_level_complete(&mut ui);
+                                persist_progress(&mut save, &ui);
+                            }
+                            let _ = manager.save(&*save);
+                            *overlay = OverlayMenu::None;
+                            transition.begin_to_state(AppState::Title);
+                        }
+                    }
+                    OverlayMenu::Award => {
+                        if let Ok(mut ui) = bridge.shared.lock() {
+                            if let Some(seed) = ui.pending_award_seed.take() {
+                                crate::game::level_flow::ensure_seed_unlocked(&mut ui, &seed);
+                            }
+                            crate::game::level_flow::advance_after_level_complete(&mut ui);
+                            crate::game::level_flow::normalize_progress_ui(&mut ui);
+                            persist_progress(&mut save, &ui);
+                        }
+                        let _ = manager.save(&*save);
+                        *overlay = OverlayMenu::None;
+                        transition.begin_to_state(AppState::Title);
+                    }
+                    _ => {
+                        *overlay = OverlayMenu::None;
+                    }
+                }
+            }
+            UiAction::SelectSeedSlot(i) => {
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    if let Some(slot) = ui.seed_bank.get(i) {
+                        if slot.ready >= 1.0 && slot.affordable {
+                            for (idx, s) in ui.seed_bank.iter_mut().enumerate() {
+                                s.selected = idx == i;
+                            }
+                            ui.shovel_selected = false;
+                        } else if !slot.affordable {
+                            for s in ui.seed_bank.iter_mut() {
+                                s.selected = false;
+                            }
+                            *overlay = OverlayMenu::NotEnoughSun;
+                        }
+                    }
+                }
+            }
+            UiAction::ToggleShovel => {
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    ui.shovel_selected = !ui.shovel_selected;
+                    for s in ui.seed_bank.iter_mut() {
+                        s.selected = false;
+                    }
+                }
+            }
+            UiAction::ClearCursor => {
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    ui.shovel_selected = false;
+                    for s in ui.seed_bank.iter_mut() {
+                        s.selected = false;
+                    }
+                }
+            }
+            UiAction::OpenMiniGames | UiAction::OpenPuzzle | UiAction::OpenSurvival => {
+                // Challenge modes arrive in a later phase.
+            }
+            UiAction::OpenZenGarden | UiAction::OpenAlmanac | UiAction::OpenStore => {
+                // Meta screens arrive in a later phase.
+            }
+            UiAction::OpenPause => {
+                paused.0 = true;
+                *overlay = OverlayMenu::Pause;
+                pending_unpause.0 = None;
+            }
+            UiAction::RestartLevel => {
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    ui.advice.visible = false;
+                }
+                *overlay = OverlayMenu::None;
+                pending_restart.0 = true;
+                // Keep paused until apply_restart swaps the level in, so the
+                // sim doesn't step mid-fade; it unpauses when done.
+            }
+
             UiAction::OpenSettings => {
                 if let Ok(mut ui) = bridge.shared.lock() {
                     ui.saved_language = locale.current.clone();
@@ -308,6 +585,8 @@ fn process_ui_actions(
                     locale.set_locale(&ui.saved_language);
                 }
                 match *overlay {
+                    OverlayMenu::NotEnoughSun => *overlay = OverlayMenu::None,
+                    OverlayMenu::SeedChooser if !paused.0 => *overlay = OverlayMenu::None,
                     OverlayMenu::Settings | OverlayMenu::Credits if paused.0 => {
                         *overlay = OverlayMenu::Pause;
                     }

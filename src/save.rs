@@ -9,6 +9,12 @@ pub struct SaveData {
     #[serde(default)]
     pub version: u32,
     pub high_score: u32,
+    /// Adventure progress, 0-based (0 => next level is "1-1").
+    #[serde(default)]
+    pub adventure_level: u32,
+    /// Seed names unlocked through level completion.
+    #[serde(default)]
+    pub unlocked_seed_names: Vec<String>,
     pub settings: SettingsData,
 }
 
@@ -36,6 +42,8 @@ impl Default for SaveData {
         Self {
             version: SAVE_VERSION,
             high_score: 0,
+            adventure_level: 0,
+            unlocked_seed_names: Vec::new(),
             settings: SettingsData::default(),
         }
     }

@@ -1,14 +1,14 @@
 # Maintainer: mlm-games
-pkgname=my-ecosystem-bevy
+pkgname=rozvp
 pkgver=0.1.0
 pkgrel=1
 pkgdesc="Clone of my Godot template for bevy"
 arch=('x86_64')
-url="https://github.com/mlm-games/my-ecosystem-bevy"
+url="https://github.com.mlm-games.rozvp"
 license=('GPL3')
 depends=('alsa-lib' 'libx11' 'libxcb' 'wayland')
 makedepends=('cargo')
-source=("$pkgname-$pkgver.tar.gz::https://github.com/mlm-games/my-ecosystem-bevy/archive/v$pkgver.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::https://github.com.mlm-games.rozvp/archive/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 
 build() {
