@@ -1,4 +1,4 @@
-name: my-ecosystem-bevy
+name: rozvp
 version: '0.1.0'
 summary: Clone of my Godot template for bevy
 description: |
@@ -8,11 +8,11 @@ grade: stable
 confinement: strict
 
 apps:
-  my-ecosystem-bevy:
-    command: my-ecosystem-bevy
+  rozvp:
+    command: rozvp
     plugs: [x11, wayland, audio, joystick]
 
 parts:
-  my-ecosystem-bevy:
+  rozvp:
     plugin: rust
     source: .

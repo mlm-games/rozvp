@@ -1,4 +1,4 @@
-# My Ecosystem Bevy
+# RoZvP
 
 A WIP Bevy 2D game template with ecosystem plugins ported from [my-ecosystem-template](https://github.com/mlm-games/my-ecosystem-template) (Godot).
 

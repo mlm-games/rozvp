@@ -1,4 +1,4 @@
-app-title = My Ecosystem Bevy
+app-title = RoZvP
 start-game = ゲーム開始
 settings = 設定
 credits = クレジット

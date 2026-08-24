@@ -1,14 +1,14 @@
-id: com.mlm-games.my-ecosystem-bevy
+id: com.mlm-games.rozvp
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
-command: my-ecosystem-bevy
+command: rozvp
 modules:
-  - name: my-ecosystem-bevy
+  - name: rozvp
     buildsystem: simple
     build-commands:
       - cargo build --release
-      - install -Dm755 target/release/my-ecosystem-bevy /app/bin/my-ecosystem-bevy
+      - install -Dm755 target/release/rozvp /app/bin/rozvp
     sources:
       - type: dir
         path: .
