@@ -17,9 +17,21 @@ struct StateSpec {
 }
 
 const STATES: [StateSpec; 3] = [
-    StateSpec { name: "walk", clip: "walk", looping: true },
-    StateSpec { name: "eat", clip: "eat", looping: true },
-    StateSpec { name: "fall", clip: "fall", looping: false },
+    StateSpec {
+        name: "walk",
+        clip: "walk",
+        looping: true,
+    },
+    StateSpec {
+        name: "eat",
+        clip: "eat",
+        looping: true,
+    },
+    StateSpec {
+        name: "fall",
+        clip: "fall",
+        looping: false,
+    },
 ];
 
 fn contain_view(comp: (u32, u32), out_w: u32, out_h: u32) -> ViewTransform {
@@ -76,16 +88,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .values()
             .find(|c| c.name == state.clip)
             .ok_or("missing clip")?;
-        let end = clip.range.1.0;
-        let mut f = clip.range.0.0;
+        let end = clip.range.1 .0;
+        let mut f = clip.range.0 .0;
         while f < end {
             let img = render_frame_rgba(&mut bridge, &mut gpu, &file, clip, f as f64, &view);
             frames.push((state.name.to_string(), state.looping, img));
             f += SAMPLE_STEP;
         }
         if !state.looping {
-            let img =
-                render_frame_rgba(&mut bridge, &mut gpu, &file, clip, end as f64, &view);
+            let img = render_frame_rgba(&mut bridge, &mut gpu, &file, clip, end as f64, &view);
             frames.push((state.name.to_string(), state.looping, img));
         }
     }
@@ -95,17 +106,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut atlas = image::RgbaImage::new(COLS * OUT_W, rows * OUT_H);
     for (i, (_, _, img)) in frames.iter().enumerate() {
         let (col, row) = ((i as u32) % COLS, (i as u32) / COLS);
-        image::imageops::replace(
-            &mut atlas,
-            img,
-            (col * OUT_W) as i64,
-            (row * OUT_H) as i64,
-        );
+        image::imageops::replace(&mut atlas, img, (col * OUT_W) as i64, (row * OUT_H) as i64);
     }
 
     let png_path = format!("{out_dir}/zombie_atlas.png");
     atlas.save_with_format(&png_path, image::ImageFormat::Png)?;
-    println!("wrote {png_path} ({}x{}, {} frames)", atlas.width(), atlas.height(), total);
+    println!(
+        "wrote {png_path} ({}x{}, {} frames)",
+        atlas.width(),
+        atlas.height(),
+        total
+    );
 
     let mut cursor = 0u32;
     println!("// paste into src/game/zombie_anim.rs");
