@@ -216,3 +216,17 @@ pub const SEED_DEFS: &[SeedDef] = &[
 pub fn seed_def(name: &str) -> Option<&'static SeedDef> {
     SEED_DEFS.iter().find(|d| d.name == name)
 }
+
+/// FTL key for a seed's display name (`seed-snow-pea`, ...). Internal names
+/// stay the save/logic identity; views translate via this key.
+pub fn seed_key(name: &str) -> String {
+    let mut slug = String::with_capacity(name.len() + 5);
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c.to_ascii_lowercase());
+        } else if c == ' ' || c == '_' || c == '-' {
+            slug.push('-');
+        }
+    }
+    format!("seed-{slug}")
+}

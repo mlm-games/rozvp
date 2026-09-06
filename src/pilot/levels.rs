@@ -410,14 +410,16 @@ pub fn tick_advice(
         AdviceStage::Done => {}
     }
     if let Ok(mut ui) = ui_share.ui.lock() {
+        // Published as FTL keys; views translate at render time so a
+        // mid-level language switch re-renders without re-ticking.
         let (text, visible) = match advice.stage {
-            AdviceStage::NightIntro => ("It is night. Sky sun will not fall!".to_string(), true),
-            AdviceStage::ClickSun => ("Click on a sun to collect it!".to_string(), true),
+            AdviceStage::NightIntro => ("advice-night-intro".to_string(), true),
+            AdviceStage::ClickSun => ("advice-click-sun".to_string(), true),
             AdviceStage::PlantSunflower => {
-                ("Plant a Sunflower to grow more sun!".to_string(), true)
+                ("advice-plant-sunflower".to_string(), true)
             }
-            AdviceStage::ZombiesComing => ("The zombies are coming...".to_string(), true),
-            AdviceStage::HugeWave => ("A huge wave of zombies is approaching!".to_string(), true),
+            AdviceStage::ZombiesComing => ("advice-zombies-coming".to_string(), true),
+            AdviceStage::HugeWave => ("advice-huge-wave".to_string(), true),
             AdviceStage::Done => (String::new(), false),
         };
         ui.advice.text = text;

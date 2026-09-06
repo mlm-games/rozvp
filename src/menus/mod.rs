@@ -80,6 +80,27 @@ fn t(translations: &HashMap<String, String>, key: &str, fallback: &str) -> Strin
         .unwrap_or_else(|| fallback.to_string())
 }
 
+/// Translated seed display name. Internal names stay the save/logic
+/// identity; views render through this key.
+fn t_seed(translations: &HashMap<String, String>, name: &str) -> String {
+    let key = crate::game::defs::seed_key(name);
+    translations.get(&key).cloned().unwrap_or_else(|| {
+        // Untranslated catalogs fall back to English inside `translations`
+        // (bevy `LocaleResources` merges fallback); raw name is last resort.
+        name.to_string()
+    })
+}
+
+/// Packet-length seed label: translator short if the catalog has one,
+/// else the first four chars of the translated full name.
+fn short_seed(translations: &HashMap<String, String>, name: &str) -> String {
+    let short_key = format!("{}-short", crate::game::defs::seed_key(name));
+    if let Some(s) = translations.get(&short_key) {
+        return s.clone();
+    }
+    t_seed(translations, name).chars().take(4).collect()
+}
+
 fn col(r: u8, g: u8, b: u8) -> RColor {
     RColor::from_rgba(r, g, b, 255)
 }
@@ -211,7 +232,7 @@ pub fn compose_root(
     let settings_view = settings_ui(overlay, &st, actions.clone());
 
     let content = match st.phase {
-        AppState::Splash => splash_ui(),
+        AppState::Splash => splash_ui(&st),
         AppState::Loading => loading_ui(&st),
         AppState::Title => ZStack(Modifier::new().fill_max_size()).child((
             selector_ui(&st, actions.clone()),
@@ -288,7 +309,7 @@ fn overlay_layer_ingame(
         ),
         AnimatedVisibility(
             st.overlay == OverlayMenu::NotEnoughSun,
-            not_enough_sun_ui(actions.clone()),
+            not_enough_sun_ui(st, actions.clone()),
             popup_anim_config("not_enough_sun"),
         ),
         AnimatedVisibility(
@@ -311,7 +332,7 @@ fn overlay_layer_ingame(
 
 // Splash / loading
 
-fn splash_ui() -> View {
+fn splash_ui(st: &SharedUi) -> View {
     ZStack(Modifier::new().fill_max_size()).child((
         Box(Modifier::new().fill_max_size().background(col(18, 40, 14))),
         Center(Modifier::new().fill_max_size()).child(
@@ -320,7 +341,7 @@ fn splash_ui() -> View {
                     .size(56.0)
                     .color(col(255, 222, 70))
                     .font_weight(FontWeight::BOLD),
-                dim_text("A Repose + Bevy PvZ recreation"),
+                dim_text(t(&st.translations, "tagline", "A Repose + Bevy PvZ recreation")),
             )),
         ),
     ))
@@ -387,7 +408,7 @@ fn selector_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         )
     };
 
-    let btn = |label: String, sub: &'static str, a: Arc<Mutex<Vec<UiAction>>>, action: UiAction| {
+    let btn = |label: String, sub: String, a: Arc<Mutex<Vec<UiAction>>>, action: UiAction| {
         ZStack(
             Modifier::new()
                 .width(286.0)
@@ -427,25 +448,25 @@ fn selector_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             spacer(6.0),
             btn(
                 adventure_label,
-                "Continue the main adventure",
+                t(tr, "adventure-sub", "Continue the main adventure"),
                 actions.clone(),
                 UiAction::OpenAdventure,
             ),
             btn(
                 t(tr, "mini-games", "Mini-Games"),
-                "Quick weird challenges",
+                t(tr, "minigames-sub", "Quick weird challenges"),
                 actions.clone(),
                 UiAction::OpenMiniGames,
             ),
             btn(
                 t(tr, "puzzle", "Puzzle"),
-                "Vasebreaker and I, Zombie",
+                t(tr, "puzzle-sub", "Vasebreaker and I, Zombie"),
                 actions.clone(),
                 UiAction::OpenPuzzle,
             ),
             btn(
                 t(tr, "survival", "Survival"),
-                "How long can you last?",
+                t(tr, "survival-sub", "How long can you last?"),
                 actions.clone(),
                 UiAction::OpenSurvival,
             ),
@@ -483,7 +504,7 @@ fn selector_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .offset_right(20.0)
             .offset_bottom(16.0)
             .render_z_index(5.0))
-        .child(menu_btn("User: Player", 200.0, 40.0, || {})),
+        .child(menu_btn(t(&st.translations, "user-label", "User: Player"), 200.0, 40.0, || {})),
     ))
 }
 
@@ -523,7 +544,7 @@ fn seed_chooser_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         .border(2.0, col(25, 16, 7), 6.0)
         .clip_rounded(6.0));
     if st.chooser_picks.is_empty() {
-        chosen_row = chosen_row.child(dim_text("Pick some seeds!"));
+        chosen_row = chosen_row.child(dim_text(t(tr, "pick-seeds", "Pick some seeds!")));
     }
     for (i, name) in st.chooser_picks.iter().enumerate() {
         let cost = crate::game::defs::seed_def(name)
@@ -534,7 +555,8 @@ fn seed_chooser_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .map(packet_color)
             .unwrap_or(col(80, 120, 40));
         let a = actions.clone();
-        chosen_row = chosen_row.child(packet_tile(name.clone(), cost, color, false, move || {
+        let shown = short_seed(tr, name);
+        chosen_row = chosen_row.child(packet_tile(shown, cost, color, false, move || {
             push(&a, UiAction::ChooserRemove(i));
         }));
     }
@@ -553,9 +575,10 @@ fn seed_chooser_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .map(packet_color)
             .unwrap_or(col(95, 150, 75));
         let name_string = (*name).to_string();
+        let shown = short_seed(tr, name);
         let a = actions.clone();
         tiles.push(packet_tile(
-            name_string.clone(),
+            shown,
             cost,
             color,
             picked,
@@ -606,6 +629,7 @@ fn packet_color(c: bevy::prelude::Color) -> RColor {
 }
 
 /// 50x70 seed packet tile with portrait swatch + cost label.
+/// `label` is the already-short display text (see `short_seed`).
 fn packet_tile(
     label: String,
     cost: i32,
@@ -613,7 +637,7 @@ fn packet_tile(
     selected: bool,
     on_click: impl Fn() + 'static,
 ) -> View {
-    let short: String = label.chars().take(4).collect();
+    let short = label;
     ZStack(
         Modifier::new()
             .width(SEED_PACKET_W)
@@ -711,7 +735,7 @@ fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         .clip_rounded(6.0)
         .render_z_index(10.0));
     for (i, s) in st.seed_bank.iter().take(10).enumerate() {
-        bank = bank.child(seed_packet_hud(i, s, actions.clone()));
+        bank = bank.child(seed_packet_hud(i, s, tr, actions.clone()));
     }
 
     // Shovel.
@@ -738,7 +762,7 @@ fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     )
     .child(
         Center(Modifier::new().fill_max_size()).child(
-            RText("Shovel")
+            RText(t(tr, "shovel", "Shovel"))
                 .size(12.0)
                 .color(RColor::WHITE)
                 .font_weight(FontWeight::BOLD),
@@ -782,7 +806,12 @@ fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .render_z_index(10.0),
     )
     .child((
-        RText(format!("Flags {}/{}", st.flags_done, st.flags_total))
+        RText(format!(
+            "{} {}/{}",
+            t(tr, "hud-flags", "Flags"),
+            st.flags_done,
+            st.flags_total
+        ))
             .size(11.0)
             .color(RColor::WHITE)
             .font_weight(FontWeight::BOLD),
@@ -810,7 +839,9 @@ fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 .clip_rounded(8.0))
             .child(
                 Center(Modifier::new().fill_max_width()).child(
-                    RText(st.advice.text.clone())
+                    // Advice is published as an FTL key; fall back to the
+                    // raw text so old states never render blank.
+                    RText(t(tr, &st.advice.text, &st.advice.text.clone()))
                         .size(15.0)
                         .color(col(255, 240, 180))
                         .text_align(TextAlign::Center),
@@ -821,7 +852,6 @@ fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         empty()
     };
 
-    let _ = tr;
     ZStack(Modifier::new().fill_max_size().hit_passthrough()).child((
         sun_badge,
         bank,
@@ -834,12 +864,17 @@ fn ingame_hud(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
 
 /// Interactive HUD seed packet: recharge veil drains from the top,
 /// unaffordable dims grey, selection highlights gold.
-fn seed_packet_hud(i: usize, s: &SeedSlotUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+fn seed_packet_hud(
+    i: usize,
+    s: &SeedSlotUi,
+    tr: &HashMap<String, String>,
+    actions: Arc<Mutex<Vec<UiAction>>>,
+) -> View {
     let ready = s.ready.clamp(0.0, 1.0);
     let unready = 1.0 - ready;
     let affordable = s.affordable;
     let selected = s.selected;
-    let short: String = s.seed_name.chars().take(4).collect();
+    let short = short_seed(tr, &s.seed_name);
     let cost = s.cost;
     let a = actions.clone();
 
@@ -957,7 +992,11 @@ fn level_complete_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View 
         [
             title_text(t(tr, "level-complete", "LEVEL COMPLETE!")),
             spacer(10.0),
-            body_text(format!("Finished level {}", st.level_name)),
+            body_text(format!(
+                "{} {}",
+                t(tr, "finished-level", "Finished level"),
+                st.level_name
+            )),
             spacer(16.0),
             menu_btn(t(tr, "continue", "Continue"), 170.0, 46.0, {
                 let a = actions.clone();
@@ -990,7 +1029,7 @@ fn award_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 .border(2.0, col(220, 180, 80), 8.0)
                 .clip_rounded(8.0)),
             spacer(10.0),
-            body_text(seed),
+            body_text(t_seed(tr, &seed)),
             spacer(16.0),
             menu_btn(t(tr, "awesome", "Awesome!"), 170.0, 46.0, {
                 let a = actions.clone();
@@ -1030,14 +1069,15 @@ fn game_over_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     ))
 }
 
-fn not_enough_sun_ui(actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+fn not_enough_sun_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+    let tr = &st.translations;
     center_modal(wood_panel(
         360.0,
         None,
         [
-            title_text("Not enough sun!"),
+            title_text(t(tr, "not-enough-sun", "Not enough sun!")),
             spacer(14.0),
-            menu_btn("OK", 130.0, 44.0, move || {
+            menu_btn(t(tr, "ok", "OK"), 130.0, 44.0, move || {
                 push(&actions, UiAction::CloseOverlay)
             }),
         ],
@@ -1052,11 +1092,19 @@ fn credits_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         [
             title_text(t(tr, "help", "Credits / Help")),
             spacer(12.0),
-            body_text("RoZVP — faithful open reimplementation."),
-            dim_text("Original game © PopCap. Assets are user supplied."),
-            dim_text("Engine: Bevy. UI: Repose."),
+            body_text(t(tr, "credits-line-1", "RoZVP — faithful open reimplementation.")),
+            dim_text(t(
+                tr,
+                "credits-line-2",
+                "Original game © PopCap. Assets are user supplied.",
+            )),
+            dim_text(t(tr, "credits-line-3", "Engine: Bevy. UI: Repose.")),
             spacer(8.0),
-            body_text("Click suns. Plant Sunflowers. Stop the zombies."),
+            body_text(t(
+                tr,
+                "credits-line-4",
+                "Click suns. Plant Sunflowers. Stop the zombies.",
+            )),
             spacer(16.0),
             menu_btn(t(tr, "back", "Back"), 150.0, 42.0, move || {
                 push(&actions, UiAction::CloseOverlay)

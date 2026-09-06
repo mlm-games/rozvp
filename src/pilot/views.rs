@@ -7,6 +7,7 @@
 
 use std::rc::Rc;
 
+use fluent_bundle::FluentArgs;
 use renamite_player_ui::RenamitePlayer;
 use repose_canvas::Canvas;
 use repose_core::locals::px_to_dp;
@@ -41,7 +42,7 @@ pub fn root_view(_sched: &mut Scheduler, ctx: &RenderContext, app: &mut PilotApp
 fn splash_view(app: &mut PilotApp) -> View {
     Column(Modifier::new().padding(48.0).gap(16.0)).child((
         Text(t(app, "app-title")).size(56.0),
-        Text("Plants vs. Zombies on the repame stack: live rigs, no bevy renderer.".to_string()),
+        Text(t(app, "tagline")),
     ))
 }
 
@@ -55,6 +56,29 @@ fn loading_view(app: &mut PilotApp) -> View {
 /// Lookup a UI string in the current language.
 fn t(app: &PilotApp, key: &str) -> String {
     app.i18n.t(key)
+}
+
+/// Translated seed display name. Falls back to the internal name when the
+/// key itself leaks through (unknown seed or missing catalog entry).
+fn t_seed(app: &PilotApp, name: &str) -> String {
+    let got = app.i18n.t(&super::comps::seed_key(name));
+    if got == super::comps::seed_key(name) {
+        name.to_string()
+    } else {
+        got
+    }
+}
+
+/// Packet-length seed label: translator short when the current locale
+/// provides one, else the first four chars of the translated full name
+/// (correct language, occasionally long — translators fix it with a
+/// `seed-*-short` key, no code change).
+fn short_seed(app: &PilotApp, name: &str) -> String {
+    let short_key = format!("{}-short", super::comps::seed_key(name));
+    if let Some(s) = app.i18n.t_local(&short_key) {
+        return s;
+    }
+    short_name(&t_seed(app, name))
 }
 
 fn title_view(app: &mut PilotApp, _ctx: &RenderContext) -> View {
@@ -76,7 +100,7 @@ fn title_view(app: &mut PilotApp, _ctx: &RenderContext) -> View {
     };
     Column(Modifier::new().padding(48.0).gap(16.0)).child((
         Text(t(app, "app-title")).size(40.0),
-        Text("Plants vs. Zombies on the repame stack: live rigs, no bevy renderer.".to_string()),
+        Text(t(app, "tagline")),
         hub_button(app, adventure_label, UiAct::OpenAdventure),
         hub_button(app, t(app, "mini-games"), UiAct::OpenAdventure),
         hub_button(app, t(app, "puzzle"), UiAct::OpenAdventure),
@@ -218,7 +242,7 @@ fn hud_bar(app: &mut PilotApp) -> View {
         let label = format!(
             "{}{} {}",
             if slot.selected { "[x] " } else { "" },
-            short_name(&slot.seed_name),
+            short_seed(app, &slot.seed_name),
             slot.cost
         );
         let app_ptr = app as *mut PilotApp;
@@ -253,7 +277,7 @@ fn hud_bar(app: &mut PilotApp) -> View {
                 toggle_shovel(app);
             }),
     )
-    .child(Text("Shovel".to_string()).size(14.0));
+    .child(Text(t(app, "shovel")).size(14.0));
     let app_ptr = app as *mut PilotApp;
     let pause = UiBox(
         Modifier::new()
@@ -265,24 +289,43 @@ fn hud_bar(app: &mut PilotApp) -> View {
             }),
     )
     .child(Text("II".to_string()).size(14.0));
+    let sun_label = {
+        let mut args = FluentArgs::new();
+        args.set("count", sun);
+        app.i18n.t_with_args("hud-sun-count", Some(&args))
+    };
+    let flags_label = {
+        let mut args = FluentArgs::new();
+        args.set("done", flags_done);
+        args.set("total", flags_total);
+        app.i18n.t_with_args("hud-flags-count", Some(&args))
+    };
     let mut row_children = vec![
-        Text(format!("Sun {}", sun)).size(18.0),
+        Text(sun_label).size(18.0),
         shovel,
         pause,
-        Text(format!("Flags {}/{}", flags_done, flags_total)).size(14.0),
+        Text(flags_label).size(14.0),
     ];
     row_children.extend(packets);
     let bar = Row(Modifier::new().gap(6.0)).child(row_children);
+    // Advice is stored as an FTL key by `tick_advice`; translate here.
+    let advice_label = if advice_text.is_empty() {
+        String::new()
+    } else {
+        t(app, &advice_text)
+    };
     if advice_visible {
         Column(Modifier::new().gap(2.0)).child((
             bar,
-            Text(format!("{}  ({:.0}%)", advice_text, progress * 100.0)).size(14.0),
+            Text(format!("{}  ({:.0}%)", advice_label, progress * 100.0)).size(14.0),
         ))
     } else {
-        Column(Modifier::new().gap(2.0)).child((
-            bar,
-            Text(format!("Progress {:.0}%", progress * 100.0)).size(14.0),
-        ))
+        let label = {
+            let mut args = FluentArgs::new();
+            args.set("pct", format!("{:.0}", progress * 100.0));
+            app.i18n.t_with_args("hud-progress-pct", Some(&args))
+        };
+        Column(Modifier::new().gap(2.0)).child((bar, Text(label).size(14.0)))
     }
 }
 
@@ -401,7 +444,12 @@ fn overlay_layer(app: &mut PilotApp) -> View {
                 .map(|ui| ui.pending_award_seed.clone())
                 .unwrap_or(None);
             let title = match seed {
-                Some(s) => format!("{} {s}", t(app, "award-title")),
+                Some(s) => {
+                    let mut args = FluentArgs::new();
+                    args.set("title", t(app, "award-title"));
+                    args.set("seed", t_seed(app, &s));
+                    app.i18n.t_with_args("award-seed-is", Some(&args))
+                }
                 None => t(app, "award-title"),
             };
             dialog(app, &title, vec![(t(app, "awesome"), UiAct::AwardOk)])
@@ -726,10 +774,10 @@ fn credits_view(app: &mut PilotApp) -> View {
     let back_label = t(app, "back");
     Column(Modifier::new().gap(10.0)).child((
         Text(t(app, "help")).size(24.0),
-        Text("RoZVP - faithful open reimplementation.".to_string()).size(16.0),
-        Text("Original (c)PopCap. Assets user supplied.".to_string()).size(16.0),
-        Text("Engine: repame sim. UI: Repose. Rigs: renamite.".to_string()).size(16.0),
-        Text("Click suns. Plant Sunflowers. Hold the lawn.".to_string()).size(16.0),
+        Text(t(app, "credits-line-1")).size(16.0),
+        Text(t(app, "credits-line-2")).size(16.0),
+        Text(t(app, "credits-line-3")).size(16.0),
+        Text(t(app, "credits-line-4")).size(16.0),
         UiBox(
             Modifier::new()
                 .background(Color::from_rgba(70, 70, 90, 255))
@@ -755,7 +803,11 @@ fn seed_chooser(app: &mut PilotApp) -> View {
     for name in unlocked {
         let picked = picks.contains(&name);
         let app_ptr = app as *mut PilotApp;
-        let label = format!("{} {}", if picked { "[x]" } else { "[ ]" }, name);
+        let label = format!(
+            "{} {}",
+            if picked { "[x]" } else { "[ ]" },
+            t_seed(app, &name)
+        );
         let toggle_name = name.clone();
         rows.push(
             UiBox(
@@ -938,5 +990,16 @@ mod tests {
         let ui = ui.ui.lock().unwrap();
         assert_eq!(ui.master_vol, 1.0);
         assert_eq!(ui.music_vol, 0.0);
+    }
+
+    #[test]
+    fn seed_shorts_prefer_translator_labels() {
+        let mut app = PilotApp::new();
+        // English ships `seed-*-short` keys.
+        assert_eq!(super::short_seed(&app, "Sunflower"), "Sunf");
+        assert_eq!(super::short_seed(&app, "Wall-nut"), "Wall");
+        // French has none yet: truncated translated name, not English.
+        assert!(app.i18n.set_language("fr"));
+        assert_eq!(super::short_seed(&app, "Sunflower"), "Tour");
     }
 }

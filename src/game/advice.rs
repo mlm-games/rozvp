@@ -97,12 +97,14 @@ pub fn tick_advice(
         AdviceStage::Done => {}
     }
 
+    // Published as FTL keys; views translate at render time so a
+    // mid-level language switch re-renders without re-ticking.
     let (text, visible) = match advice.stage {
-        AdviceStage::NightIntro => ("It is night. Sky sun will not fall!", true),
-        AdviceStage::ClickSun => ("Click on a sun to collect it!", true),
-        AdviceStage::PlantSunflower => ("Plant a Sunflower to grow more sun!", true),
-        AdviceStage::ZombiesComing => ("The zombies are coming...", true),
-        AdviceStage::HugeWave => ("A huge wave of zombies is approaching!", true),
+        AdviceStage::NightIntro => ("advice-night-intro", true),
+        AdviceStage::ClickSun => ("advice-click-sun", true),
+        AdviceStage::PlantSunflower => ("advice-plant-sunflower", true),
+        AdviceStage::ZombiesComing => ("advice-zombies-coming", true),
+        AdviceStage::HugeWave => ("advice-huge-wave", true),
         AdviceStage::Done => ("", false),
     };
     if let Ok(mut ui) = bridge.shared.lock() {
