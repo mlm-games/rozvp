@@ -8,7 +8,7 @@ repository = "https://github.com/mlm-games/rozvp"
 readme = "README.md"
 keywords = ["bevy", "gamedev", "game", "2d", "repose"]
 categories = ["game-development"]
-rust-version = "1.96"
+rust-version = "1.98"
 default-run = "rozvp-desktop"
 
 [lib]
@@ -18,11 +18,19 @@ crate-type = ["cdylib", "rlib"]
 name = "rozvp-desktop"
 path = "src/main.rs"
 
+[[bin]]
+name = "rozvp-repose"
+path = "src/pilot_bin.rs"
+required-features = ["repose-shell"]
+
 [features]
 default = ["dev_native"]
 dev = []
 dev_native = ["dev"]
 physics = ["dep:bevy_rapier2d"]
+# Pilot shell: repame sim + live renamite rigs on the repose runner,
+# alongside (not instead of) the bevy path. Strangler pattern.
+repose-shell = ["dep:repame-sim", "dep:repame-shell", "dep:repame-actors", "dep:repame-sprite", "dep:repame-audio", "dep:renamite-player-ui", "dep:glam", "dep:repose-canvas", "dep:ron", "dep:directories", "dep:fluent", "dep:fluent-bundle", "dep:unic-langid"]
 # Big-game optional crates (check note below)
 # Keep commented until compatible to avoid breakage.
 # input_manager = ["dep:leafwing-input-manager"]
@@ -67,17 +75,31 @@ bevy = { git = "https://github.com/bevyengine/bevy", rev = "fb89a8649d9b359e53ff
     "webgl2",
     "android-native-activity",
 ] }
-repose-bevy = { git = "https://github.com/mlm-games/repose-bevy", default-features = false, features = [
+repose-bevy = { path = "../repose-bevy", default-features = false, features = [
     "shared-device",
 ] }
 wgpu = { version = "30", features = ["webgpu", "webgl"] }
-repose-core = "0.28"
-repose-ui = "0.28"
-repose-material = "0.28"
-repose-render-wgpu = "0.28"
+repose-core = "0.29"
+repose-ui = "0.29"
+repose-material = "0.29"
+repose-render-wgpu = "0.29"
 game-utils = { git = "https://github.com/mlm-games/game-utils" }
 game-utils-bevy = { git = "https://github.com/mlm-games/game-utils" }
+repame-sim = { path = "../repame/crates/repame-sim", version = "0.1", optional = true }
+repame-shell = { path = "../repame/crates/repame-shell", version = "0.1", optional = true }
+repame-actors = { path = "../repame/crates/repame-actors", version = "0.1", optional = true }
+repame-sprite = { path = "../repame/crates/repame-sprite", version = "0.1", optional = true }
+repame-audio = { path = "../repame/crates/repame-audio", version = "0.1", optional = true }
+renamite-player-ui = { path = "../renamite/crates/renamite-player-ui", version = "0.2", optional = true }
+repose-canvas = { version = "0.29", optional = true }
+glam = { version = "0.33", optional = true }
 rand = "0.10"
+ron = { version = "0.8", optional = true }
+directories = { version = "6", optional = true }
+fluent = { version = "0.16", optional = true }
+fluent-bundle = { version = "0.16", optional = true }
+unic-langid = { version = "0.9", optional = true }
+anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 bevy_rapier2d = { package = "bevy_rapier2d", git = "https://github.com/mlm-games/bevy_rapier", optional = true, default-features = false, features = [
     "dim2",
@@ -128,7 +150,13 @@ opt-level = "s"
 strip = "debuginfo"
 
 # [patch.crates-io]
-# repose-core = { path = "../../../Repos/repose/crates/repose-core" }
-# repose-ui = { path = "../../../Repos/repose/crates/repose-ui" }
-# repose-material = { path = "../../../Repos/repose/crates/repose-material" }
-# repose-render-wgpu = { path = "../../../Repos/repose/crates/repose-render-wgpu" }
+# repose-core = { path = "../repose/crates/repose-core" }
+# repose-ui = { path = "../repose/crates/repose-ui" }
+# repose-material = { path = "../repose/crates/repose-material" }
+# repose-render-wgpu = { path = "../repose/crates/repose-render-wgpu" }
+# repose-app = { path = "../repose/crates/repose-app" }
+# repose-text = { path = "../repose/crates/repose-text" }
+# repose-canvas = { path = "../repose/crates/repose-canvas" }
+# repose-docking = { path = "../repose/crates/repose-docking" }
+# repose-platform = { path = "../repose/crates/repose-platform" }
+# repose-tree = { path = "../repose/crates/repose-tree" }
