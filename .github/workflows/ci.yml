@@ -19,8 +19,7 @@ jobs:
       run-fmt: true
       run-test: true
       extra-checks: |
-        --target wasm32-unknown-unknown --no-default-features
-        --features physics
+        --target wasm32-unknown-unknown
       include-android: true
       upload-artifacts: true
       app-slug: rozvp

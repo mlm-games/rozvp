@@ -1,88 +1,49 @@
-# RoZvP
+# RoZVP
 
-A WIP Bevy 2D game template with ecosystem plugins ported from [my-ecosystem-template](https://github.com/mlm-games/my-ecosystem-template) (Godot).
+Plants vs. Zombies on Repose + repame. 100 Hz integer-tick sim, live
+renamite rigs instead of sprite atlases, pure Repose views. Desktop,
+web, and Android from one codebase; the old Bevy path was removed
+(history keeps it for reference).
 
-## Features
-
-- **Game Feel** - recoil, knockback, slow-motion, rumble (gamepad)
-- **Screen Effects** - trauma shake, freeze frame, flash white, chromatic aberration pulse + decay
-- **Transitions** - fade to black, circle wipe scene transitions with input edge blocking
-- **Audio** - channel-based SFX/Music/UI buses with independent volume control (`BaseVolume` × bus), pitch variation, pooled SFX (uses Bevy built-in audio, no external dep)
-- **Localization** - Fluent-based i18n with 7 bundled locales (en, es, fr, de, ja, zh, pt), language switcher in settings, `LocaleResources` resource
-- **Save System** - persistent RON save with atomic writes + version migration via `directories`
-- **Object Pooling** - generic entity pool with acquire/release
-- **Juice** - pop-in, squash & stretch, bounce scale, shake, particles with gravity/fade
-- **VFX** - damage numbers, particle bursts, trail emitters
-- **UI Effects** - hover scale, typewriter text, number counter
-- **Math Utils** - smooth_damp, approach, wave (f32, Vec2, Vec3)
-- **Center Pivot** - sprite origin centering component
-- **UI** - animated buttons, popup system, pause/settings/credits with localized text (Repose)
-- **States** - Splash -> Loading -> Title -> InGame with pause overlay
-- **Theme** - centralized color constants
-- **Dev Tools** - FPS overlay, state logging (dev feature)
-- **Demo Scene** - player with shooting, enemies, trauma, recoil, burst effects, damage numbers, gamepad rumble
-
-## Quick Start
+## Run
 
 ```bash
-cargo run
+cargo run        # desktop, title hub
+cargo test       # sim, save, i18n suites
+trunk serve      # web
 ```
 
-With physics (bevy_rapier2d):
-```bash
-cargo run --features physics
-```
-
-Dev build with hot-reload:
-```bash
-cargo run --features dev
-```
+Android ships via `cargo-rapk` (`[package.metadata.android]`).
 
 ## Structure
 
-The game-feel ecosystem (audio, transitions, juice, VFX, save, i18n, pooling, game feel)
-lives in the **[game-utils](https://github.com/mlm-games/game-utils)** workspace, split into:
-
-- `crates/game-utils` - Bevy-agnostic core (save manager, i18n, math, stats, achievements)
-- `crates/game-utils-bevy/src` - Bevy plugins:
-  - `audio.rs` - channel-based audio buses (SfxChannel/MusicChannel/UiChannel)
-  - `center_pivot.rs` - sprite origin centering
-  - `game_feel.rs` - recoil, knockback, slow-motion, gamepad rumble
-  - `i18n.rs` - Fluent-based localization (7 locales, language switcher)
-  - `juice.rs` - pop-in, squash/stretch, bounce, shake, particles
-  - `pooling.rs` - generic entity pooling
-  - `save.rs` - RON save/load with atomic writes + version migration
-  - `screen_effects.rs` - trauma, freeze frame, flash white, chromatic aberration
-  - `time_scale.rs` - single owner of virtual-time speed/pause
-  - `transitions.rs` - fade/circle wipe with input edge blocking
-  - `ui_effects.rs` - hover scale, typewriter, number counter
-  - `vfx.rs` - damage numbers, particle bursts, trail emitters
-
-This template repo holds only the app layer:
-
 ```
 src/
-├── main.rs              # Entry point
-├── app.rs               # AppPlugin, states, system sets
-├── save.rs              # SaveData type (persisted via game-utils)
-├── screens/             # Splash, loading, title
-├── menus/               # Main, pause, settings, credits (localized)
-├── theme/               # Theme resource
-├── demo/                # Sample gameplay with all juice
-├── dev_tools.rs         # FPS overlay, state logging
-└── asset_tracking.rs    # Preload tracking
+├── main.rs          # desktop entry
+├── lib.rs           # pilot module + wasm/android entries
+└── pilot/
+    ├── sim.rs       # Sim assembly + 100 Hz tick driver
+    ├── combat.rs    # shooters, peas, specials, move/eat, mowers
+    ├── economy.rs   # sun, recharge, planting, shovel
+    ├── levels.rs    # waves, level flow, awards, advice
+    ├── constants.rs # canonical tune values (see docs/PARITY.md)
+    ├── views.rs     # board canvas, HUD, menus, overlays
+    ├── render.rs    # frame snapshots for the canvas
+    ├── rigs.rs      # live zombie rig hosts
+    ├── runner.rs    # desktop/web/android entries
+    ├── save.rs      # save.ron via game-utils SaveStore
+    ├── i18n.rs      # Fluent bundles, translators edit FTL only
+    └── audio.rs     # repame-audio engine + synth cue bank
 ```
 
-## Dependencies
+## Notes
 
-| Crate | Purpose |
-|-------|---------|
-| `bevy` (git rev) | Engine |
-| `repose-bevy` / `repose-*` | UI framework |
-| `fluent-bundle` + `unic-langid` | Localization (Fluent) |
-| `serde` + `ron` + `directories` | Save system |
-| `rand` | Random variation (audio pitch, VFX) |
-| `bevy_rapier2d` (optional) | Physics |
+- **Save**: crash-safe `SaveStore` (`FsStorage`, OPFS on web), same
+  `SaveData` shape as before, so old `save.ron` files still load.
+- **i18n**: 7 locales under `assets/locales`, per-key English fallback.
+- **Audio**: synth cues at boot; real packs drop into the bank later.
+- **Stack**: `repose 0.29`, `repame` + `renamite` (path), `game-utils`
+  (git rev, `storage`/`save_store` APIs).
 
 ## License
 
