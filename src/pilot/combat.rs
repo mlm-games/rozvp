@@ -170,6 +170,15 @@ pub fn move_peas_and_hit(
                 }
             }
             despawn_pea = true;
+            let (hx, hy) = (pea_pos.x, pea_pos.y);
+            repame_fx::burst(
+                &mut commands,
+                hx,
+                hy,
+                &super::fx::pea_puff(),
+                6,
+                &mut rand::rng(),
+            );
         }
         if despawn_pea || pea_pos.x > BOARD_WIDTH + 40.0 {
             commands.entity(pea_e).try_despawn();
@@ -183,6 +192,8 @@ pub fn tick_cherry_bombs(
     mut board: ResMut<Board>,
     mut bombs: Query<(Entity, &Plant, &mut CherryBombFuse)>,
     mut zombies: Query<(Entity, &mut Zombie, &Pos)>,
+    mut trauma: ResMut<repame_fx::Trauma>,
+    mut flash: ResMut<repame_fx::Flash>,
 ) {
     if frame_ticks.0 <= 0 {
         return;
@@ -207,6 +218,17 @@ pub fn tick_cherry_bombs(
                 commands.entity(z_e).try_despawn();
             }
         }
+        let (bx, by) = grid_center_logic(plant.col, plant.row);
+        repame_fx::burst(
+            &mut commands,
+            bx,
+            by,
+            &super::fx::explosion(),
+            24,
+            &mut rand::rng(),
+        );
+        trauma.add(0.6);
+        flash.trigger([1.0, 1.0, 1.0, 0.5], 12);
         board.cells[plant.row][plant.col] = None;
         commands.entity(bomb_e).try_despawn();
     }
@@ -235,6 +257,7 @@ pub fn tick_chompers(
     frame_ticks: Res<FrameTicks>,
     mut chompers: Query<(&Plant, &Pos, &mut ChomperState), Without<Zombie>>,
     mut zombies: Query<(Entity, &mut Zombie, &Pos), Without<Plant>>,
+    mut trauma: ResMut<repame_fx::Trauma>,
 ) {
     if frame_ticks.0 <= 0 {
         return;
@@ -257,13 +280,23 @@ pub fn tick_chompers(
                 break;
             }
         }
-        if let Some(v_e) = victim {
-            if let Ok((_, mut zombie, _)) = zombies.get_mut(v_e) {
-                if zombie.take_damage(9999) {
-                    commands.entity(v_e).try_despawn();
-                }
-                state.chewing_timer = CHOMPER_CHEW_TICKS;
+        if let Some(v_e) = victim
+            && let Ok((_, mut zombie, zpos)) = zombies.get_mut(v_e)
+        {
+            let (hx, hy) = (zpos.x, zpos.y);
+            if zombie.take_damage(9999) {
+                commands.entity(v_e).try_despawn();
             }
+            repame_fx::burst(
+                &mut commands,
+                hx,
+                hy,
+                &super::fx::thump(),
+                10,
+                &mut rand::rng(),
+            );
+            trauma.add(0.25);
+            state.chewing_timer = CHOMPER_CHEW_TICKS;
         }
     }
 }
@@ -274,6 +307,7 @@ pub fn tick_squash(
     mut board: ResMut<Board>,
     squashes: Query<(Entity, &Plant, &Pos), Without<Zombie>>,
     mut zombies: Query<(Entity, &mut Zombie, &Pos), Without<Plant>>,
+    mut trauma: ResMut<repame_fx::Trauma>,
 ) {
     if frame_ticks.0 <= 0 {
         return;
@@ -292,13 +326,23 @@ pub fn tick_squash(
                 target = Some((z_e, d));
             }
         }
-        if let Some((z_e, _)) = target {
-            if let Ok((_, mut zombie, _)) = zombies.get_mut(z_e) {
-                if zombie.take_damage(SQUASH_DAMAGE) {
-                    commands.entity(z_e).try_despawn();
-                    board.cells[plant.row][plant.col] = None;
-                    commands.entity(sq_e).try_despawn();
-                }
+        if let Some((z_e, _)) = target
+            && let Ok((_, mut zombie, zpos)) = zombies.get_mut(z_e)
+        {
+            let (hx, hy) = (zpos.x, zpos.y);
+            if zombie.take_damage(SQUASH_DAMAGE) {
+                commands.entity(z_e).try_despawn();
+                board.cells[plant.row][plant.col] = None;
+                commands.entity(sq_e).try_despawn();
+                repame_fx::burst(
+                    &mut commands,
+                    hx,
+                    hy,
+                    &super::fx::thump(),
+                    10,
+                    &mut rand::rng(),
+                );
+                trauma.add(0.2);
             }
         }
     }
@@ -310,6 +354,8 @@ pub fn tick_jalapenos(
     mut board: ResMut<Board>,
     mut jals: Query<(Entity, &Plant, &mut JalapenoFuse)>,
     mut zombies: Query<(Entity, &mut Zombie), Without<Plant>>,
+    mut trauma: ResMut<repame_fx::Trauma>,
+    mut flash: ResMut<repame_fx::Flash>,
 ) {
     if frame_ticks.0 <= 0 {
         return;
@@ -328,6 +374,17 @@ pub fn tick_jalapenos(
                 commands.entity(z_e).try_despawn();
             }
         }
+        let (jx, jy) = grid_center_logic(plant.col, plant.row);
+        repame_fx::burst(
+            &mut commands,
+            jx,
+            jy,
+            &super::fx::explosion(),
+            24,
+            &mut rand::rng(),
+        );
+        trauma.add(0.6);
+        flash.trigger([1.0, 1.0, 1.0, 0.5], 12);
         board.cells[plant.row][plant.col] = None;
         commands.entity(jal_e).try_despawn();
     }
@@ -406,6 +463,8 @@ pub fn tick_doom_shrooms(
     mut board: ResMut<Board>,
     mut dooms: Query<(Entity, &Plant, &mut DoomShroomFuse)>,
     mut zombies: Query<(Entity, &mut Zombie, &Pos), Without<Plant>>,
+    mut trauma: ResMut<repame_fx::Trauma>,
+    mut flash: ResMut<repame_fx::Flash>,
 ) {
     if frame_ticks.0 <= 0 {
         return;
@@ -447,6 +506,16 @@ pub fn tick_doom_shrooms(
             }
         }
         let (cx, cy) = grid_center_logic(plant.col, plant.row);
+        repame_fx::burst(
+            &mut commands,
+            cx,
+            cy,
+            &super::fx::explosion(),
+            32,
+            &mut rand::rng(),
+        );
+        trauma.add(0.8);
+        flash.trigger([1.0, 1.0, 1.0, 0.6], 14);
         let crater_e = commands
             .spawn((
                 GameplayCleanup,
@@ -499,6 +568,8 @@ pub fn move_and_eat_zombies(
         Without<Plant>,
     >,
     mut plants: Query<(Entity, &mut Plant, &Pos, Option<&PotatoMineState>), Without<Zombie>>,
+    mut trauma: ResMut<repame_fx::Trauma>,
+    mut flash: ResMut<repame_fx::Flash>,
 ) {
     if frame_ticks.0 <= 0 {
         return;
@@ -563,6 +634,17 @@ pub fn move_and_eat_zombies(
                             if zombie.take_damage(POTATO_MINE_DAMAGE) {
                                 kill_zombie(&mut commands, z_e);
                             }
+                            let (mx, my) = grid_center_logic(plant.col, plant.row);
+                            repame_fx::burst(
+                                &mut commands,
+                                mx,
+                                my,
+                                &super::fx::explosion(),
+                                16,
+                                &mut rand::rng(),
+                            );
+                            trauma.add(0.5);
+                            flash.trigger([1.0, 1.0, 1.0, 0.5], 12);
                             board.cells[plant.row][plant.col] = None;
                             commands.entity(plant_e).try_despawn();
                             continue;
@@ -734,7 +816,16 @@ pub fn run_mowers(
                 continue;
             }
             if (zpos.x - mpos.x).abs() <= MOWER_KILL_HALF_WIDTH {
+                let (hx, hy) = (zpos.x, zpos.y);
                 kill_zombie(&mut commands, z_e);
+                repame_fx::burst(
+                    &mut commands,
+                    hx,
+                    hy,
+                    &super::fx::thump(),
+                    8,
+                    &mut rand::rng(),
+                );
             }
         }
         if mpos.x > BOARD_WIDTH + 40.0 {
@@ -747,6 +838,8 @@ pub fn lose_on_house_reach(
     zombies: Query<(&Zombie, &Pos), Without<Dying>>,
     mowers: Query<&LawnMower>,
     mut flow: ResMut<FlowControl>,
+    mut trauma: ResMut<repame_fx::Trauma>,
+    mut flash: ResMut<repame_fx::Flash>,
 ) {
     use super::state::Overlay;
     if flow.overlay != Overlay::None {
@@ -758,6 +851,8 @@ pub fn lose_on_house_reach(
             if !row_protected {
                 flow.overlay = Overlay::GameOver;
                 flow.paused = true;
+                trauma.add(1.0);
+                flash.trigger([0.8, 0.1, 0.1, 0.6], 30);
                 break;
             }
         }

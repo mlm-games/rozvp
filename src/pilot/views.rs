@@ -4,20 +4,40 @@
 //! Coordinate convention: 1 logic px == 1 dp. The board canvas is a fixed
 //! 800x600 region; pointer positions (physical px, region-relative) map
 //! through `px_to_dp` straight onto logic coords.
+//!
+//! Chrome styling mirrors the previous repose-bevy UI (`menus/mod.rs`):
+//! wood panels, parchment seed packets, sun badge, advice banner, and
+//! centered scrim modals — adapted to the pilot's `&mut PilotApp` closure
+//! style (raw-pointer `apply_act` dispatches).
 
 use std::rc::Rc;
+use std::time::Duration;
 
 use fluent_bundle::FluentArgs;
-use renamite_player_ui::RenamitePlayer;
 use repose_canvas::Canvas;
 use repose_core::locals::px_to_dp;
-use repose_core::{Color, Modifier, Rect, RenderContext, Scheduler, View, request_frame};
-use repose_ui::{Box as UiBox, Column, Row, Spacer, Text, TextStyle, ViewExt, ZStack};
+use repose_core::prelude::{AlignItems, AnimationSpec, Easing, JustifyContent, Modifier};
+use repose_core::{
+    Color, CursorIcon, FontWeight, Modifier as CoreModifier, Rect, RenderContext, Scheduler,
+    TextAlign, View, request_frame,
+};
+use repose_ui::anim_ext::{
+    AnimatedVisibility, AnimatedVisibilityConfig, EnterTransition, ExitTransition,
+};
+use repose_ui::{Box as UiBox, Center, Column, Grid, Row, Text, TextStyle, ViewExt, ZStack};
 
 use super::render::frame_input;
 use super::sim::PilotApp;
 use super::state::{Overlay, PilotPhase};
 use crate::pilot::constants::{BOARD_HEIGHT, BOARD_WIDTH};
+
+// Layout constants (800x600 design space, mirrors old menus/mod.rs).
+const SEED_PACKET_W: f32 = 50.0;
+const SEED_PACKET_H: f32 = 70.0;
+const SUN_BOX_W: f32 = 72.0;
+const SEED_BANK_X: f32 = 88.0;
+const SEED_BANK_Y: f32 = 8.0;
+const SHOVEL_X: f32 = 622.0;
 
 /// Root view: splash, loading, title, or game, plus a standing frame
 /// request (continuous game loop; sim time advances in the runner).
@@ -39,17 +59,271 @@ pub fn root_view(_sched: &mut Scheduler, ctx: &RenderContext, app: &mut PilotApp
     }
 }
 
+// ---- chrome helpers (ported from old menus/mod.rs) ----
+
+fn col(r: u8, g: u8, b: u8) -> Color {
+    Color::from_rgba(r, g, b, 255)
+}
+
+fn cola(r: u8, g: u8, b: u8, a: u8) -> Color {
+    Color::from_rgba(r, g, b, a)
+}
+
+fn spacer(h: f32) -> View {
+    UiBox(CoreModifier::new().width(1.0).height(h))
+}
+
+fn empty() -> View {
+    UiBox(CoreModifier::new().width(0.0).height(0.0))
+}
+
+fn popup_anim_config(key: &str) -> AnimatedVisibilityConfig {
+    AnimatedVisibilityConfig {
+        key: key.into(),
+        spec: AnimationSpec::tween(Duration::from_millis(180), Easing::EaseOut),
+        enter: EnterTransition::ScaleIn { initial: 0.94 },
+        exit: ExitTransition::ScaleOut { target: 0.94 },
+    }
+}
+
+/// Full-screen dimmer that swallows clicks so lawn/HUD controls don't leak.
+fn scrim() -> View {
+    UiBox(
+        Modifier::new()
+            .fill_max_size()
+            .background(cola(0, 0, 0, 170))
+            .input_blocker()
+            .render_z_index(100.0),
+    )
+}
+
+/// PvZ wood panel.
+fn wood_panel(w: f32, h: Option<f32>, children: Vec<View>) -> View {
+    let mut m = Modifier::new()
+        .width(w)
+        .padding(16.0)
+        .background(col(72, 48, 24))
+        .border(3.0, col(35, 22, 9), 8.0)
+        .clip_rounded(8.0)
+        .shadow(10.0, 4.0)
+        .render_z_index(110.0);
+    if let Some(h) = h {
+        m = m.height(h);
+    }
+    Column(
+        m.align_items(AlignItems::CENTER)
+            .justify_content(JustifyContent::CENTER),
+    )
+    .child(children)
+}
+
+fn title_text(label: impl Into<String>) -> View {
+    Text(label.into())
+        .size(34.0)
+        .color(col(255, 222, 74))
+        .font_weight(FontWeight::BOLD)
+        .text_align(TextAlign::Center)
+}
+
+fn body_text(label: impl Into<String>) -> View {
+    Text(label.into())
+        .size(16.0)
+        .color(Color::WHITE)
+        .text_align(TextAlign::Center)
+}
+
+fn dim_text(label: impl Into<String>) -> View {
+    Text(label.into())
+        .size(13.0)
+        .color(cola(255, 255, 255, 190))
+        .text_align(TextAlign::Center)
+}
+
+/// Custom PvZ-styled button (no flat green look).
+fn menu_btn(app: &mut PilotApp, label: impl Into<String>, w: f32, h: f32, act: UiAct) -> View {
+    let label = label.into();
+    let app_ptr = app as *mut PilotApp;
+    ZStack(
+        Modifier::new()
+            .width(w)
+            .height(h)
+            .background(col(104, 72, 34))
+            .border(2.0, col(222, 183, 86), 7.0)
+            .clip_rounded(7.0)
+            .on_click(move || {
+                // SAFETY: synchronous compose-time dispatch only.
+                let app = unsafe { &mut *app_ptr };
+                apply_act(app, act.clone());
+            })
+            .cursor(CursorIcon::Pointer),
+    )
+    .child(
+        Center(Modifier::new().fill_max_size()).child(
+            Text(label)
+                .size(18.0)
+                .color(Color::WHITE)
+                .font_weight(FontWeight::BOLD)
+                .text_align(TextAlign::Center),
+        ),
+    )
+}
+
+fn center_modal(child: View) -> View {
+    ZStack(Modifier::new().fill_max_size()).child((
+        scrim(),
+        Center(Modifier::new().fill_max_size()).child(child),
+    ))
+}
+
+fn progress_bar(w: f32, h: f32, pct: f32, fill: Color) -> View {
+    ZStack(
+        Modifier::new()
+            .width(w)
+            .height(h)
+            .background(col(40, 28, 16))
+            .clip_rounded(h * 0.5),
+    )
+    .child(UiBox(
+        Modifier::new()
+            .width((w * pct.clamp(0.0, 1.0)).max(1.0))
+            .height(h)
+            .background(fill)
+            .clip_rounded(h * 0.5),
+    ))
+}
+
+fn fake_lawn_bg() -> View {
+    ZStack(Modifier::new().fill_max_size()).child((
+        UiBox(Modifier::new().fill_max_size().background(col(86, 145, 43))),
+        UiBox(
+            Modifier::new()
+                .absolute()
+                .offset_left(40.0)
+                .offset_top(80.0)
+                .width(720.0)
+                .height(500.0)
+                .background(col(96, 160, 48))
+                .clip_rounded(3.0)
+                .hit_passthrough(),
+        ),
+        UiBox(
+            Modifier::new()
+                .absolute()
+                .offset_left(400.0)
+                .offset_top(80.0)
+                .width(360.0)
+                .height(500.0)
+                .background(cola(50, 110, 25, 60))
+                .hit_passthrough(),
+        ),
+    ))
+}
+
+/// Seed-def `[f32; 4]` tint -> UI color.
+fn packet_color(c: [f32; 4]) -> Color {
+    rgba(c)
+}
+
+/// 50x70 seed packet tile with portrait swatch + cost label.
+/// `label` is the already-short display text (see `short_seed`).
+fn packet_tile(
+    app: &mut PilotApp,
+    label: String,
+    cost: i32,
+    color: Color,
+    selected: bool,
+    act: UiAct,
+) -> View {
+    let app_ptr = app as *mut PilotApp;
+    ZStack(
+        Modifier::new()
+            .width(SEED_PACKET_W)
+            .height(SEED_PACKET_H)
+            .background(col(210, 175, 85))
+            .border(
+                if selected { 3.0 } else { 2.0 },
+                if selected {
+                    col(255, 230, 60)
+                } else {
+                    col(90, 60, 25)
+                },
+                3.0,
+            )
+            .clip_rounded(3.0)
+            .on_click(move || {
+                let app = unsafe { &mut *app_ptr };
+                apply_act(app, act.clone());
+            })
+            .cursor(CursorIcon::Pointer),
+    )
+    .child((
+        Column(
+            Modifier::new()
+                .size(SEED_PACKET_W - 6.0, SEED_PACKET_H - 6.0)
+                .padding(3.0)
+                .align_items(AlignItems::CENTER)
+                .justify_content(JustifyContent::SPACE_BETWEEN),
+        )
+        .child((
+            Text(label)
+                .size(10.0)
+                .color(col(35, 24, 10))
+                .font_weight(FontWeight::BOLD)
+                .single_line(),
+            UiBox(
+                Modifier::new()
+                    .width(40.0)
+                    .height(30.0)
+                    .background(color)
+                    .clip_rounded(2.0),
+            ),
+            Text(cost.to_string())
+                .size(12.0)
+                .color(col(35, 24, 10))
+                .font_weight(FontWeight::BOLD),
+        )),
+        if selected {
+            UiBox(
+                Modifier::new()
+                    .size(SEED_PACKET_W, SEED_PACKET_H)
+                    .background(cola(255, 230, 60, 45)),
+            )
+        } else {
+            empty()
+        },
+    ))
+}
+
+// ---- splash / loading ----
+
 fn splash_view(app: &mut PilotApp) -> View {
-    Column(Modifier::new().padding(48.0).gap(16.0)).child((
-        Text(t(app, "app-title")).size(56.0),
-        Text(t(app, "tagline")),
+    let _ = app;
+    ZStack(Modifier::new().fill_max_size()).child((
+        UiBox(Modifier::new().fill_max_size().background(col(18, 40, 14))),
+        Center(Modifier::new().fill_max_size()).child(
+            Column(Modifier::new().align_items(AlignItems::CENTER).gap(8.0)).child((
+                Text("RoZVP".to_string())
+                    .size(56.0)
+                    .color(col(255, 222, 70))
+                    .font_weight(FontWeight::BOLD),
+                dim_text(t(app, "tagline")),
+            )),
+        ),
     ))
 }
 
 fn loading_view(app: &mut PilotApp) -> View {
-    Column(Modifier::new().padding(48.0).gap(16.0)).child((
-        Text(t(app, "app-title")).size(40.0),
-        Text(t(app, "loading")).size(20.0),
+    ZStack(Modifier::new().fill_max_size()).child((
+        UiBox(Modifier::new().fill_max_size().background(col(18, 40, 14))),
+        Center(Modifier::new().fill_max_size()).child(
+            Column(Modifier::new().align_items(AlignItems::CENTER)).child((
+                title_text(t(app, "loading")),
+                spacer(16.0),
+                progress_bar(330.0, 18.0, 0.6, col(120, 185, 45)),
+                spacer(8.0),
+                body_text("60%"),
+            )),
+        ),
     ))
 }
 
@@ -81,79 +355,235 @@ fn short_seed(app: &PilotApp, name: &str) -> String {
     short_name(&t_seed(app, name))
 }
 
+// ---- title hub ----
+
 fn title_view(app: &mut PilotApp, _ctx: &RenderContext) -> View {
     let overlay = app
         .sim
         .world
         .resource::<super::state::FlowControl>()
         .overlay;
-    match overlay {
-        Overlay::SeedChooser => return seed_chooser(app),
-        Overlay::Settings => return settings_view(app),
-        Overlay::Credits => return credits_view(app),
-        _ => {}
-    }
+    let base = selector_ui(app);
+    // Popups animate in over the hub like the old build.
+    let layer = match overlay {
+        Overlay::SeedChooser => {
+            AnimatedVisibility(true, seed_chooser(app), popup_anim_config("seeds"))
+        }
+        Overlay::Settings => AnimatedVisibility(
+            true,
+            settings_view(app),
+            popup_anim_config("title_settings"),
+        ),
+        Overlay::Credits => {
+            AnimatedVisibility(true, credits_view(app), popup_anim_config("title_credits"))
+        }
+        _ => empty(),
+    };
+    ZStack(Modifier::new().fill_max_size()).child((base, layer))
+}
+
+/// Wood mode button with subtitle, 286x50 like the old hub.
+fn mode_button(app: &mut PilotApp, label: String, sub: String) -> View {
+    let app_ptr = app as *mut PilotApp;
+    ZStack(
+        Modifier::new()
+            .width(286.0)
+            .height(50.0)
+            .background(col(98, 70, 34))
+            .border(2.0, col(222, 183, 86), 8.0)
+            .clip_rounded(8.0)
+            .on_click(move || {
+                let app = unsafe { &mut *app_ptr };
+                apply_act(app, UiAct::OpenAdventure);
+            })
+            .cursor(CursorIcon::Pointer),
+    )
+    .child(
+        Column(
+            Modifier::new()
+                .fill_max_size()
+                .padding(5.0)
+                .align_items(AlignItems::CENTER)
+                .justify_content(JustifyContent::CENTER),
+        )
+        .child((
+            Text(label)
+                .size(19.0)
+                .color(Color::WHITE)
+                .font_weight(FontWeight::BOLD),
+            Text(sub).size(10.0).color(cola(255, 255, 255, 190)),
+        )),
+    )
+}
+
+fn locked_button(label: String) -> View {
+    ZStack(
+        Modifier::new()
+            .width(286.0)
+            .height(50.0)
+            .background(col(60, 55, 50))
+            .border(2.0, col(120, 110, 95), 8.0)
+            .clip_rounded(8.0),
+    )
+    .child(
+        Center(Modifier::new().fill_max_size()).child(
+            Text(format!("{label} 🔒"))
+                .size(17.0)
+                .color(cola(255, 255, 255, 140))
+                .font_weight(FontWeight::BOLD),
+        ),
+    )
+}
+
+fn selector_ui(app: &mut PilotApp) -> View {
     let adventure_label = {
         let ui = app.sim.world.resource::<super::state::UiShare>();
         let ui = ui.ui.lock().unwrap();
-        format!("{} {}", t(app, "adventure"), ui.level_name)
+        format!(
+            "{} {}",
+            t(app, "adventure"),
+            super::levels::level_label(ui.adventure_level)
+        )
     };
-    Column(Modifier::new().padding(48.0).gap(16.0)).child((
-        Text(t(app, "app-title")).size(40.0),
-        Text(t(app, "tagline")),
-        hub_button(app, adventure_label, UiAct::OpenAdventure),
-        hub_button(app, t(app, "mini-games"), UiAct::OpenAdventure),
-        hub_button(app, t(app, "puzzle"), UiAct::OpenAdventure),
-        hub_button(app, t(app, "survival"), UiAct::OpenAdventure),
-        Row(Modifier::new().gap(8.0)).child((
-            hub_button(app, t(app, "settings"), UiAct::OpenSettings),
-            hub_button(app, t(app, "help"), UiAct::OpenCredits),
-            hub_button(app, t(app, "quit"), UiAct::QuitApp),
-        )),
-    ))
-}
+    let adventure_sub = t(app, "adventure-sub");
+    let minigames = t(app, "mini-games");
+    let minigames_sub = t(app, "minigames-sub");
+    let puzzle = t(app, "puzzle");
+    let puzzle_sub = t(app, "puzzle-sub");
+    let survival = t(app, "survival");
+    let survival_sub = t(app, "survival-sub");
+    let zen = t(app, "zen-garden");
+    let almanac = t(app, "almanac");
+    let store = t(app, "store");
+    let settings = t(app, "settings");
+    let help = t(app, "help");
+    let quit = t(app, "quit");
+    let user = t(app, "user-label");
 
-/// Title hub button. Mode buttons all open the seed chooser: the pilot
-/// has one level pool (adventure levels), modes are presentational.
-fn hub_button(app: &mut PilotApp, label: String, act: UiAct) -> View {
-    let app_ptr = app as *mut PilotApp;
-    UiBox(
+    let menu = wood_panel(
+        330.0,
+        Some(520.0),
+        vec![
+            Text("RoZVP".to_string())
+                .size(40.0)
+                .color(col(255, 222, 70))
+                .font_weight(FontWeight::BOLD),
+            spacer(6.0),
+            mode_button(app, adventure_label, adventure_sub),
+            mode_button(app, minigames, minigames_sub),
+            mode_button(app, puzzle, puzzle_sub),
+            mode_button(app, survival, survival_sub),
+            locked_button(zen),
+            locked_button(almanac),
+            locked_button(store),
+            spacer(4.0),
+            Row(Modifier::new().gap(6.0)).child((
+                menu_btn(app, settings, 88.0, 34.0, UiAct::OpenSettings),
+                menu_btn(app, help, 88.0, 34.0, UiAct::OpenCredits),
+                menu_btn(app, quit, 88.0, 34.0, UiAct::QuitApp),
+            )),
+        ],
+    );
+
+    // User chip is display-only; keep it a non-clickable wood button look.
+    let user_chip = ZStack(
         Modifier::new()
-            .background(Color::from_rgba(60, 120, 60, 255))
-            .padding(12.0)
-            .on_click(move || {
-                // SAFETY: invoked synchronously during compose, before any
-                // other borrow of the app.
-                let app = unsafe { &mut *app_ptr };
-                apply_act(app, act.clone());
-            }),
+            .width(200.0)
+            .height(40.0)
+            .background(col(104, 72, 34))
+            .border(2.0, col(222, 183, 86), 7.0)
+            .clip_rounded(7.0),
     )
-    .child(Text(label).size(22.0))
+    .child(
+        Center(Modifier::new().fill_max_size()).child(
+            Text(user)
+                .size(18.0)
+                .color(Color::WHITE)
+                .font_weight(FontWeight::BOLD)
+                .text_align(TextAlign::Center),
+        ),
+    );
+
+    ZStack(Modifier::new().fill_max_size()).child((
+        fake_lawn_bg(),
+        UiBox(
+            Modifier::new()
+                .absolute()
+                .offset_left(28.0)
+                .offset_top(28.0)
+                .render_z_index(5.0),
+        )
+        .child(menu),
+        UiBox(
+            Modifier::new()
+                .absolute()
+                .offset_right(20.0)
+                .offset_bottom(16.0)
+                .render_z_index(5.0),
+        )
+        .child(user_chip),
+    ))
 }
 
 fn game_view(app: &mut PilotApp, ctx: &RenderContext) -> View {
-    let board = board_layer(app);
-    let rigs = rigs_layer(app, ctx);
-    let world = ZStack(Modifier::new().size(BOARD_WIDTH, BOARD_HEIGHT)).child((board, rigs));
-    let hud = hud_bar(app);
-    let overlays = overlay_layer(app);
-    Column(Modifier::new().gap(4.0)).child((
-        hud,
-        ZStack(Modifier::new().size(BOARD_WIDTH, BOARD_HEIGHT)).child((world, overlays)),
+    // Board canvas fills the window (aspect-fit lawn); rigs overlay it in
+    // the same space; HUD floats on top in window space; modals center over
+    // everything — mirrors the old in-game look.
+    ZStack(Modifier::new().fill_max_size()).child((
+        board_layer(app),
+        rigs_layer(app, ctx),
+        ingame_hud(app),
+        overlay_layer(app),
     ))
 }
 
-/// Lawn + entities painted to canvas from the frame producers.
+/// Aspect-fit mapping of the 800x600 logic board into a canvas: uniform
+/// scale plus centering offsets, all in dp.
+fn board_fit_for(canvas_w: f32, canvas_h: f32) -> (f32, f32, f32) {
+    if canvas_w <= 0.0 || canvas_h <= 0.0 {
+        return (1.0, 0.0, 0.0);
+    }
+    let s = (canvas_w / BOARD_WIDTH).min(canvas_h / BOARD_HEIGHT);
+    let s = s.clamp(0.1, 8.0);
+    (
+        s,
+        (canvas_w - BOARD_WIDTH * s) * 0.5,
+        (canvas_h - BOARD_HEIGHT * s) * 0.5,
+    )
+}
+
+/// Lawn + entities painted to canvas from the frame producers. The canvas
+/// fills the window; the lawn is aspect-fit centered with a stage-tinted
+/// grass backdrop covering the letterbox margins.
 fn board_layer(app: &mut PilotApp) -> View {
     let input = frame_input(&mut app.sim.world, [BOARD_WIDTH, BOARD_HEIGHT]);
     let sprites = Rc::new(input.sprites);
+    let backdrop = match app.sim.world.resource::<super::state::Board>().stage {
+        super::state::Stage::Night => [0.16, 0.27, 0.20, 1.0],
+        super::state::Stage::Day => [0.345, 0.585, 0.215, 1.0],
+    };
+    // Damage floaters, snapshotted for the draw closure.
+    let numbers: Rc<Vec<(String, f32, f32, [f32; 4])>> = Rc::new(
+        app.sim
+            .world
+            .query::<&repame_fx::DamageNumber>()
+            .iter(&app.sim.world)
+            .map(|n| (n.text.clone(), n.x, n.y, n.color))
+            .collect(),
+    );
+    // Transition fade alpha (0 = no cover).
+    let fade = app.sim.world.resource::<repame_fx::TransitionFx>().alpha();
+    let fit_cell = app.board_fit.clone();
+    let click_fit = fit_cell.clone();
     let app_ptr = app as *mut PilotApp;
-    let modifier = Modifier::new()
-        .size(BOARD_WIDTH, BOARD_HEIGHT)
-        .on_pointer_down(move |ev: repose_core::input::PointerEvent| {
+    let modifier = Modifier::new().fill_max_size().on_pointer_down(
+        move |ev: repose_core::input::PointerEvent| {
             let p = ev.position;
-            let logic_x = px_to_dp(p.x);
-            let logic_y = px_to_dp(p.y);
+            let dp_x = px_to_dp(p.x);
+            let dp_y = px_to_dp(p.y);
+            let (s, ox, oy) = click_fit.get();
+            let logic_x = (dp_x - ox) / s;
+            let logic_y = (dp_y - oy) / s;
             // SAFETY: synchronous compose-time dispatch only.
             let app = unsafe { &mut *app_ptr };
             app.sim
@@ -161,19 +591,58 @@ fn board_layer(app: &mut PilotApp) -> View {
                 .resource_mut::<super::state::ClickQueue>()
                 .clicks
                 .push((logic_x, logic_y));
-        });
+        },
+    );
     Canvas(modifier, move |scope: &mut repose_canvas::DrawScope| {
-        for s in sprites.iter() {
-            let w = s.size.x;
-            let h = s.size.y;
+        let (s, ox, oy) = board_fit_for(scope.size.width, scope.size.height);
+        fit_cell.set((s, ox, oy));
+        // Grass backdrop over the whole canvas (margins included).
+        scope.draw_rect(
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                w: scope.size.width,
+                h: scope.size.height,
+            },
+            rgba(backdrop),
+            0.0,
+        );
+        for spr in sprites.iter() {
+            let w = spr.size.x * s;
+            let h = spr.size.y * s;
             scope.draw_rect(
                 Rect {
-                    x: s.center.x - w * 0.5,
-                    y: s.center.y - h * 0.5,
+                    x: ox + (spr.center.x - spr.size.x * 0.5) * s,
+                    y: oy + (spr.center.y - spr.size.y * 0.5) * s,
                     w,
                     h,
                 },
-                rgba(s.color),
+                rgba(spr.color),
+                0.0,
+            );
+        }
+        // Damage floaters as canvas text, same fit transform.
+        for (text, x, y, color) in numbers.iter() {
+            scope.draw_text(
+                text.clone(),
+                repose_core::Vec2 {
+                    x: ox + x * s,
+                    y: oy + y * s,
+                },
+                rgba(*color),
+                16.0 * s,
+            );
+        }
+        // Transition fade over everything board-side.
+        if fade > 0.001 {
+            scope.draw_rect(
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    w: scope.size.width,
+                    h: scope.size.height,
+                },
+                Color::from_rgba(0, 0, 0, (fade.clamp(0.0, 1.0) * 255.0) as u8),
                 0.0,
             );
         }
@@ -190,40 +659,111 @@ fn rgba(c: [f32; 4]) -> Color {
 }
 
 /// One live-rig surface per zombie, offset to its logic position.
+///
+/// Each rig paints through [`zombie_actor_view`]: a transparent canvas with
+/// no editor chrome (the old `RenamitePlayer` embed painted an opaque
+/// background plus a checkerboard artboard, i.e. the black square). Layout
+/// is absolute in the same aspect-fit space as the board canvas, so the
+/// surface tracks the sim `Pos` while moving.
 fn rigs_layer(app: &mut PilotApp, ctx: &RenderContext) -> View {
     use super::comps::{Pos, Zombie};
     // Entity-keyed pass (queries borrow world; hosts live outside it).
-    let items: Vec<(f32, f32, repame_actors::PlayerHostRef)> = {
+    let items: Vec<(f32, f32, bool, repame_actors::PlayerHostRef)> = {
         let mut q = app
             .sim
             .world
             .query::<(repame_sim::bevy_ecs::prelude::Entity, &Zombie, &Pos)>();
         let world = &app.sim.world;
         let mut out = Vec::new();
-        for (e, _, pos) in q.iter(world) {
+        for (e, zombie, pos) in q.iter(world) {
             if let Some(entry) = app.rigs.hosts.get(&e) {
-                out.push((pos.x, pos.y, entry.host.clone()));
+                out.push((pos.x, pos.y, zombie.hypnotized, entry.host.clone()));
             }
         }
         out
     };
     let mut views = Vec::new();
-    for (x, y, host) in items {
+    // Same aspect-fit space as the board canvas (see `board_layer`).
+    let (s, ox, oy) = app.board_fit.get();
+    for (x, y, hypnotized, host) in items {
         // 64x80 surface, artboard 256x320 scaled by host.view (0.25).
-        let surface = UiBox(Modifier::new().size(64.0, 80.0).offset(
-            Some(x - 32.0),
-            Some(y - 40.0),
+        // `.absolute()` is load-bearing: without it taffy ignores the
+        // offsets and every zombie stacks at the same fixed spot.
+        let mut modifier = Modifier::new().size(64.0 * s, 80.0 * s).absolute().offset(
+            Some(ox + (x - 32.0) * s),
+            Some(oy + (y - 40.0) * s),
             None,
             None,
-        ))
-        .child(RenamitePlayer(host, ctx.clone()));
+        );
+        // The rig faces right; the horde walks left, so mirror around the
+        // surface center exactly like the old `sprite.flip_x` did.
+        if !hypnotized {
+            modifier = modifier.scale2(-1.0, 1.0);
+        }
+        let surface = UiBox(modifier).child(zombie_actor_view(host, ctx.clone()));
         views.push(surface);
     }
-    ZStack(Modifier::new().size(BOARD_WIDTH, BOARD_HEIGHT)).child(views)
+    ZStack(
+        Modifier::new()
+            .fill_max_size()
+            .hit_passthrough()
+            .render_z_index(5.0),
+    )
+    .child(views)
 }
 
-fn hud_bar(app: &mut PilotApp) -> View {
-    let (sun, slots, shovel, progress, flags_done, flags_total, advice_text, advice_visible) = {
+/// Transparent in-game rig surface: paints the live `Scene` with no editor
+/// chrome (no opaque background, shadow, checkerboard, or border) so the
+/// zombie reads like the old 64x80 baked-atlas sprite. Playback is ticked
+/// in `rigs::sync_rigs`, not here, so paused games freeze and there is no
+/// double-tick speedup.
+fn zombie_actor_view(host: repame_actors::PlayerHostRef, ctx: RenderContext) -> View {
+    Canvas(
+        Modifier::new().fill_max_size().hit_passthrough(),
+        move |scope| {
+            let mut h = host.borrow_mut();
+            let sw = scope.size.width as f64;
+            let sh = scope.size.height as f64;
+            if sw <= 1.0 || sh <= 1.0 {
+                return;
+            }
+            let art = h.artboard();
+            if art.x <= 0.0 || art.y <= 0.0 {
+                return;
+            }
+            // Exact-fit the 256x320 artboard into the surface (no editor
+            // margin): a 64x80 surface yields the classic 0.25 scale.
+            let scale = (sw / art.x).min(sh / art.y);
+            h.view.scale = scale;
+            h.view.offset.x = (sw - art.x * scale) * 0.5;
+            h.view.offset.y = (sh - art.y * scale) * 0.5;
+            if h.dirty_images {
+                let host = &mut *h;
+                host.renderer
+                    .sync_document_images(&host.player.project.document, &ctx);
+                host.dirty_images = false;
+            }
+            let scene = h.player.scene().clone();
+            let view = h.view;
+            let prepared = h.renderer.prepare(&scene, &view);
+            h.renderer.paint_prepared(&prepared, scope);
+        },
+    )
+}
+
+// ---- in-game HUD (absolute overlay, old look) ----
+
+fn ingame_hud(app: &mut PilotApp) -> View {
+    let (
+        sun,
+        slots,
+        shovel_selected,
+        progress,
+        flags_done,
+        flags_total,
+        advice_text,
+        advice_visible,
+    ) = {
         let share = app.sim.world.resource::<super::state::UiShare>();
         let ui = share.ui.lock().unwrap();
         (
@@ -237,100 +777,281 @@ fn hud_bar(app: &mut PilotApp) -> View {
             ui.advice.visible,
         )
     };
-    let mut packets: Vec<View> = Vec::new();
-    for (i, slot) in slots.iter().enumerate() {
-        let label = format!(
-            "{}{} {}",
-            if slot.selected { "[x] " } else { "" },
-            short_seed(app, &slot.seed_name),
-            slot.cost
-        );
-        let app_ptr = app as *mut PilotApp;
-        packets.push(
-            UiBox(
-                Modifier::new()
-                    .background(if slot.affordable {
-                        Color::from_rgba(50, 90, 50, 255)
-                    } else {
-                        Color::from_rgba(60, 60, 60, 255)
-                    })
-                    .padding(6.0)
-                    .on_click(move || {
-                        let app = unsafe { &mut *app_ptr };
-                        select_seed(app, i);
-                    }),
-            )
-            .child(Text(label).size(14.0)),
-        );
+
+    // Sun counter badge.
+    let sun_badge = Row(Modifier::new()
+        .absolute()
+        .offset_left(10.0)
+        .offset_top(SEED_BANK_Y)
+        .width(SUN_BOX_W)
+        .height(SEED_PACKET_H + 4.0)
+        .padding(6.0)
+        .gap(6.0)
+        .background(col(48, 32, 16))
+        .border(2.0, col(30, 18, 8), 8.0)
+        .clip_rounded(8.0)
+        .align_items(AlignItems::CENTER)
+        .render_z_index(10.0))
+    .child((
+        UiBox(
+            Modifier::new()
+                .width(26.0)
+                .height(26.0)
+                .background(col(255, 220, 40))
+                .border(2.0, col(220, 150, 20), 13.0)
+                .clip_rounded(13.0),
+        ),
+        Text(sun.to_string())
+            .size(22.0)
+            .color(Color::WHITE)
+            .font_weight(FontWeight::BOLD),
+    ));
+
+    // Seed bank bar.
+    let mut bank_children: Vec<View> = Vec::new();
+    for (i, s) in slots.iter().take(10).enumerate() {
+        bank_children.push(seed_packet_hud(app, i, s));
     }
+    let bank = Row(Modifier::new()
+        .absolute()
+        .offset_left(SEED_BANK_X)
+        .offset_top(SEED_BANK_Y)
+        .height(SEED_PACKET_H + 8.0)
+        .padding(3.0)
+        .gap(3.0)
+        .background(col(48, 32, 16))
+        .border(2.0, col(30, 18, 8), 6.0)
+        .clip_rounded(6.0)
+        .render_z_index(10.0))
+    .child(bank_children);
+
+    // Shovel.
     let app_ptr = app as *mut PilotApp;
-    let shovel = UiBox(
+    let shovel_label = t(app, "shovel");
+    let shovel = ZStack(
         Modifier::new()
-            .background(if shovel {
-                Color::from_rgba(145, 100, 40, 255)
+            .absolute()
+            .offset_left(SHOVEL_X)
+            .offset_top(SEED_BANK_Y)
+            .width(58.0)
+            .height(SEED_PACKET_H)
+            .background(if shovel_selected {
+                col(145, 100, 40)
             } else {
-                Color::from_rgba(70, 50, 28, 255)
+                col(70, 50, 28)
             })
-            .padding(6.0)
+            .border(2.0, col(35, 22, 9), 5.0)
+            .clip_rounded(5.0)
             .on_click(move || {
                 let app = unsafe { &mut *app_ptr };
                 toggle_shovel(app);
-            }),
+            })
+            .cursor(CursorIcon::Pointer)
+            .render_z_index(10.0),
     )
-    .child(Text(t(app, "shovel")).size(14.0));
+    .child(
+        Center(Modifier::new().fill_max_size()).child(
+            Text(shovel_label)
+                .size(12.0)
+                .color(Color::WHITE)
+                .font_weight(FontWeight::BOLD),
+        ),
+    );
+
+    // Pause button (top-right).
     let app_ptr = app as *mut PilotApp;
-    let pause = UiBox(
+    let pause_btn = ZStack(
         Modifier::new()
-            .background(Color::from_rgba(70, 70, 90, 255))
-            .padding(6.0)
+            .absolute()
+            .offset_right(12.0)
+            .offset_top(SEED_BANK_Y)
+            .width(46.0)
+            .height(36.0)
+            .background(col(70, 50, 28))
+            .border(2.0, col(35, 22, 9), 5.0)
+            .clip_rounded(5.0)
             .on_click(move || {
                 let app = unsafe { &mut *app_ptr };
                 pause_game(app);
-            }),
+            })
+            .cursor(CursorIcon::Pointer)
+            .render_z_index(10.0),
     )
-    .child(Text("II".to_string()).size(14.0));
-    let sun_label = {
-        let mut args = FluentArgs::new();
-        args.set("count", sun);
-        app.i18n.t_with_args("hud-sun-count", Some(&args))
-    };
+    .child(
+        Center(Modifier::new().fill_max_size()).child(
+            Text("||".to_string())
+                .size(18.0)
+                .color(Color::WHITE)
+                .font_weight(FontWeight::BOLD),
+        ),
+    );
+
+    // Progress meter (bottom-right).
     let flags_label = {
         let mut args = FluentArgs::new();
         args.set("done", flags_done);
         args.set("total", flags_total);
         app.i18n.t_with_args("hud-flags-count", Some(&args))
     };
-    let mut row_children = vec![
-        Text(sun_label).size(18.0),
-        shovel,
-        pause,
-        Text(flags_label).size(14.0),
-    ];
-    row_children.extend(packets);
-    let bar = Row(Modifier::new().gap(6.0)).child(row_children);
-    // Advice is stored as an FTL key by `tick_advice`; translate here.
+    let meter = Column(
+        Modifier::new()
+            .absolute()
+            .offset_right(16.0)
+            .offset_bottom(14.0)
+            .align_items(AlignItems::CENTER)
+            .render_z_index(10.0),
+    )
+    .child((
+        Text(flags_label)
+            .size(11.0)
+            .color(Color::WHITE)
+            .font_weight(FontWeight::BOLD),
+        spacer(3.0),
+        progress_bar(112.0, 16.0, progress, col(190, 35, 35)),
+    ));
+
+    // Advice banner (bottom-center).
     let advice_label = if advice_text.is_empty() {
         String::new()
     } else {
         t(app, &advice_text)
     };
-    if advice_visible {
-        Column(Modifier::new().gap(2.0)).child((
-            bar,
-            Text(format!("{}  ({:.0}%)", advice_label, progress * 100.0)).size(14.0),
-        ))
+    let advice_layer = if advice_visible {
+        Column(
+            Modifier::new()
+                .absolute()
+                .offset_bottom(64.0)
+                .fill_max_width()
+                .justify_content(JustifyContent::CENTER)
+                .hit_passthrough()
+                .render_z_index(12.0),
+        )
+        .child(
+            UiBox(
+                Modifier::new()
+                    .width(430.0)
+                    .padding(10.0)
+                    .background(cola(15, 12, 8, 225))
+                    .border(2.0, col(190, 150, 70), 8.0)
+                    .clip_rounded(8.0),
+            )
+            .child(
+                Center(Modifier::new().fill_max_width()).child(
+                    Text(advice_label)
+                        .size(15.0)
+                        .color(col(255, 240, 180))
+                        .text_align(TextAlign::Center),
+                ),
+            ),
+        )
     } else {
-        let label = {
-            let mut args = FluentArgs::new();
-            args.set("pct", format!("{:.0}", progress * 100.0));
-            app.i18n.t_with_args("hud-progress-pct", Some(&args))
-        };
-        Column(Modifier::new().gap(2.0)).child((bar, Text(label).size(14.0)))
-    }
+        empty()
+    };
+
+    ZStack(Modifier::new().fill_max_size().hit_passthrough()).child((
+        sun_badge,
+        bank,
+        shovel,
+        pause_btn,
+        meter,
+        advice_layer,
+    ))
 }
 
 fn short_name(name: &str) -> String {
     name.chars().take(4).collect()
+}
+
+/// Interactive HUD seed packet: recharge veil drains from the top,
+/// unaffordable dims grey, selection highlights gold.
+fn seed_packet_hud(app: &mut PilotApp, i: usize, s: &super::state::SeedSlot) -> View {
+    let ready = s.ready.clamp(0.0, 1.0);
+    let unready = 1.0 - ready;
+    let affordable = s.affordable;
+    let selected = s.selected;
+    let short = short_seed(app, &s.seed_name);
+    let cost = s.cost;
+    let app_ptr = app as *mut PilotApp;
+
+    let swatch_color = super::comps::seed_def(&s.seed_name)
+        .map(|d| packet_color(d.color))
+        .unwrap_or(col(80, 120, 40));
+
+    ZStack(
+        Modifier::new()
+            .width(SEED_PACKET_W)
+            .height(SEED_PACKET_H)
+            .background(col(210, 175, 85))
+            .border(
+                if selected { 3.0 } else { 2.0 },
+                if selected {
+                    col(255, 230, 60)
+                } else {
+                    col(90, 60, 25)
+                },
+                3.0,
+            )
+            .clip_rounded(3.0)
+            .on_click(move || {
+                let app = unsafe { &mut *app_ptr };
+                select_seed(app, i);
+            })
+            .cursor(CursorIcon::Pointer)
+            .render_z_index(1.0),
+    )
+    .child((
+        Column(
+            Modifier::new()
+                .size(SEED_PACKET_W - 6.0, SEED_PACKET_H - 6.0)
+                .padding(3.0)
+                .align_items(AlignItems::CENTER)
+                .justify_content(JustifyContent::SPACE_BETWEEN),
+        )
+        .child((
+            Text(short)
+                .size(10.0)
+                .color(col(40, 25, 10))
+                .font_weight(FontWeight::BOLD)
+                .single_line(),
+            UiBox(
+                Modifier::new()
+                    .width(38.0)
+                    .height(30.0)
+                    .background(swatch_color)
+                    .border(1.0, col(50, 40, 20), 2.0)
+                    .clip_rounded(2.0),
+            ),
+            Text(cost.to_string())
+                .size(12.0)
+                .color(col(30, 20, 8))
+                .font_weight(FontWeight::BOLD),
+        )),
+        // Recharge veil anchored to the top.
+        if unready > 0.001 {
+            UiBox(
+                Modifier::new()
+                    .width(SEED_PACKET_W)
+                    .height(SEED_PACKET_H * unready)
+                    .background(cola(0, 0, 0, 150))
+                    .hit_passthrough()
+                    .render_z_index(2.0),
+            )
+        } else {
+            empty()
+        },
+        // Unaffordable grey-out.
+        if !affordable {
+            UiBox(
+                Modifier::new()
+                    .size(SEED_PACKET_W, SEED_PACKET_H)
+                    .background(cola(0, 0, 0, 105))
+                    .hit_passthrough()
+                    .render_z_index(3.0),
+            )
+        } else {
+            empty()
+        },
+    ))
 }
 
 fn select_seed(app: &mut PilotApp, idx: usize) {
@@ -399,70 +1120,35 @@ fn overlay_layer(app: &mut PilotApp) -> View {
         .world
         .resource::<super::state::FlowControl>()
         .overlay;
-    match overlay {
-        Overlay::None => Spacer(),
-        Overlay::Pause => dialog(
-            app,
-            &t(app, "paused"),
-            vec![
-                (t(app, "resume"), UiAct::Resume),
-                (t(app, "restart"), UiAct::Restart),
-                (t(app, "settings"), UiAct::OpenSettings),
-                (t(app, "quit-to-title"), UiAct::QuitToTitle),
-            ],
-        ),
-        Overlay::GameOver => dialog(
-            app,
-            &t(app, "zombies-ate-your-brains"),
-            vec![
-                (t(app, "try-again"), UiAct::Restart),
-                (t(app, "quit-to-title"), UiAct::QuitToTitle),
-            ],
-        ),
-        Overlay::LevelComplete => {
-            let name = app
-                .sim
-                .world
-                .resource::<super::state::UiShare>()
-                .ui
-                .lock()
-                .map(|ui| ui.level_name.clone())
-                .unwrap_or_default();
-            dialog(
-                app,
-                &format!("{} {name}", t(app, "level-complete")),
-                vec![(t(app, "continue"), UiAct::LevelOk)],
-            )
-        }
-        Overlay::Award => {
-            let seed = app
-                .sim
-                .world
-                .resource::<super::state::UiShare>()
-                .ui
-                .lock()
-                .map(|ui| ui.pending_award_seed.clone())
-                .unwrap_or(None);
-            let title = match seed {
-                Some(s) => {
-                    let mut args = FluentArgs::new();
-                    args.set("title", t(app, "award-title"));
-                    args.set("seed", t_seed(app, &s));
-                    app.i18n.t_with_args("award-seed-is", Some(&args))
-                }
-                None => t(app, "award-title"),
-            };
-            dialog(app, &title, vec![(t(app, "awesome"), UiAct::AwardOk)])
-        }
-        Overlay::NotEnoughSun => dialog(
-            app,
-            &t(app, "not-enough-sun"),
-            vec![(t(app, "continue"), UiAct::CloseOverlay)],
-        ),
+    // Eagerly build only the visible modal; each is a wood panel on a
+    // scrim with a scale pop like the old build.
+    let modal = match overlay {
+        Overlay::None => return empty(),
+        Overlay::Pause => pause_ui(app),
+        Overlay::GameOver => game_over_ui(app),
+        Overlay::LevelComplete => level_complete_ui(app),
+        Overlay::Award => award_ui(app),
+        Overlay::NotEnoughSun => not_enough_sun_ui(app),
         Overlay::SeedChooser => seed_chooser(app),
         Overlay::Settings => settings_view(app),
         Overlay::Credits => credits_view(app),
-    }
+    };
+    let key = match overlay {
+        Overlay::Pause => "pause",
+        Overlay::GameOver => "game_over",
+        Overlay::LevelComplete => "level_complete",
+        Overlay::Award => "award",
+        Overlay::NotEnoughSun => "not_enough_sun",
+        Overlay::SeedChooser => "seeds",
+        Overlay::Settings => "ingame_settings",
+        Overlay::Credits => "ingame_credits",
+        Overlay::None => "none",
+    };
+    ZStack(Modifier::new().fill_max_size().hit_passthrough()).child(AnimatedVisibility(
+        true,
+        modal,
+        popup_anim_config(key),
+    ))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -487,35 +1173,148 @@ enum UiAct {
     BumpVol(VolChannel, bool),
     SetLanguage(String),
     SaveSettings,
+    ChooserPick(String),
+    ChooserRemove(usize),
+    ConfirmSeedChooser,
 }
 
-fn dialog(app: &mut PilotApp, title: &str, buttons: Vec<(String, UiAct)>) -> View {
-    let app_ptr = app as *mut PilotApp;
-    // Capture per-button actions via index into a shared vec.
-    let acts: Rc<Vec<UiAct>> = Rc::new(buttons.iter().map(|(_, a)| a.clone()).collect());
-    let mut children: Vec<View> = vec![Text(title.to_string()).size(24.0)];
-    for (i, (label, _)) in buttons.iter().enumerate() {
-        let acts = acts.clone();
-        let label = label.clone();
-        children.push(
+fn pause_ui(app: &mut PilotApp) -> View {
+    let paused = t(app, "paused");
+    let resume = t(app, "resume");
+    let restart = t(app, "restart");
+    let settings = t(app, "settings");
+    let menu = t(app, "main-menu");
+    center_modal(wood_panel(
+        340.0,
+        None,
+        vec![
+            title_text(paused),
+            spacer(16.0),
+            menu_btn(app, resume, 260.0, 48.0, UiAct::Resume),
+            spacer(8.0),
+            menu_btn(app, restart, 260.0, 48.0, UiAct::Restart),
+            spacer(8.0),
+            menu_btn(app, settings, 260.0, 48.0, UiAct::OpenSettings),
+            spacer(8.0),
+            menu_btn(app, menu, 260.0, 48.0, UiAct::QuitToTitle),
+        ],
+    ))
+}
+
+fn level_complete_ui(app: &mut PilotApp) -> View {
+    let title = t(app, "level-complete");
+    let finished = t(app, "finished-level");
+    let level_name = app
+        .sim
+        .world
+        .resource::<super::state::UiShare>()
+        .ui
+        .lock()
+        .map(|ui| ui.level_name.clone())
+        .unwrap_or_default();
+    let cont = t(app, "continue");
+    center_modal(wood_panel(
+        420.0,
+        None,
+        vec![
+            title_text(title),
+            spacer(10.0),
+            body_text(format!("{finished} {level_name}")),
+            spacer(16.0),
+            menu_btn(app, cont, 170.0, 46.0, UiAct::LevelOk),
+        ],
+    ))
+}
+
+fn award_ui(app: &mut PilotApp) -> View {
+    let seed = app
+        .sim
+        .world
+        .resource::<super::state::UiShare>()
+        .ui
+        .lock()
+        .map(|ui| ui.pending_award_seed.clone())
+        .unwrap_or(None);
+    let award_title = t(app, "award-title");
+    let title = match seed.as_deref() {
+        Some(s) => {
+            let mut args = FluentArgs::new();
+            args.set("title", award_title);
+            args.set("seed", t_seed(app, s));
+            app.i18n.t_with_args("award-seed-is", Some(&args))
+        }
+        None => award_title,
+    };
+    let seed_name = seed.clone().unwrap_or_default();
+    let color = super::comps::seed_def(&seed_name)
+        .map(|d| packet_color(d.color))
+        .unwrap_or(col(95, 150, 75));
+    let awesome = t(app, "awesome");
+    center_modal(wood_panel(
+        440.0,
+        None,
+        vec![
+            title_text(title),
+            spacer(12.0),
             UiBox(
                 Modifier::new()
-                    .background(Color::from_rgba(60, 90, 60, 255))
-                    .padding(8.0)
-                    .on_click(move || {
-                        let app = unsafe { &mut *app_ptr };
-                        apply_act(app, acts[i].clone());
-                    }),
-            )
-            .child(Text(label).size(18.0)),
-        );
-    }
-    UiBox(
-        Modifier::new()
-            .background(Color::from_rgba(20, 20, 24, 230))
-            .padding(24.0),
-    )
-    .child(Column(Modifier::new().gap(10.0)).child(children))
+                    .width(100.0)
+                    .height(80.0)
+                    .background(color)
+                    .border(2.0, col(220, 180, 80), 8.0)
+                    .clip_rounded(8.0),
+            ),
+            spacer(10.0),
+            body_text(t_seed(app, &seed_name)),
+            spacer(16.0),
+            menu_btn(app, awesome, 170.0, 46.0, UiAct::AwardOk),
+        ],
+    ))
+}
+
+fn game_over_ui(app: &mut PilotApp) -> View {
+    let title = t(app, "zombies-ate-your-brains");
+    let menu = t(app, "main-menu");
+    let retry = t(app, "try-again");
+    center_modal(wood_panel(
+        480.0,
+        None,
+        vec![
+            Text(title)
+                .size(23.0)
+                .color(col(220, 40, 40))
+                .font_weight(FontWeight::BOLD)
+                .text_align(TextAlign::Center),
+            spacer(16.0),
+            Row(Modifier::new().gap(12.0)).child((
+                menu_btn(app, menu, 150.0, 46.0, UiAct::QuitToTitle),
+                menu_btn(app, retry, 150.0, 46.0, UiAct::Restart),
+            )),
+        ],
+    ))
+}
+
+fn not_enough_sun_ui(app: &mut PilotApp) -> View {
+    let title = t(app, "not-enough-sun");
+    let ok = t(app, "ok");
+    center_modal(wood_panel(
+        360.0,
+        None,
+        vec![
+            title_text(title),
+            spacer(14.0),
+            menu_btn(app, ok, 130.0, 44.0, UiAct::CloseOverlay),
+        ],
+    ))
+}
+
+/// Start the fade cover on phase switches (mirrors bevy
+/// `begin_to_state` transitions; input blocks until uncover).
+fn begin_transition(app: &mut PilotApp) {
+    app.sim
+        .world
+        .resource_mut::<repame_fx::TransitionFx>()
+        .begin();
 }
 
 fn apply_act(app: &mut PilotApp, act: UiAct) {
@@ -549,6 +1348,7 @@ fn apply_act(app: &mut PilotApp, act: UiAct) {
             let mut flow = app.sim.world.resource_mut::<super::state::FlowControl>();
             flow.overlay = Overlay::None;
             flow.paused = false;
+            begin_transition(app);
         }
         UiAct::LevelOk => {
             let award = {
@@ -577,6 +1377,7 @@ fn apply_act(app: &mut PilotApp, act: UiAct) {
                     }
                 }
             }
+            let award_is_none = award.is_none();
             let mut flow = app.sim.world.resource_mut::<super::state::FlowControl>();
             match award {
                 Some(_) => flow.overlay = Overlay::Award,
@@ -584,6 +1385,9 @@ fn apply_act(app: &mut PilotApp, act: UiAct) {
                     flow.overlay = Overlay::None;
                     flow.paused = false;
                 }
+            }
+            if award_is_none {
+                begin_transition(app);
             }
             app.audio.cue(Cue::Win);
         }
@@ -604,6 +1408,7 @@ fn apply_act(app: &mut PilotApp, act: UiAct) {
             let mut flow = app.sim.world.resource_mut::<super::state::FlowControl>();
             flow.overlay = Overlay::None;
             flow.paused = false;
+            begin_transition(app);
         }
         UiAct::CloseOverlay => {
             // Back buttons: paused games return to Pause (matches bevy
@@ -666,201 +1471,234 @@ fn apply_act(app: &mut PilotApp, act: UiAct) {
                 Overlay::None
             };
         }
+        UiAct::ChooserPick(name) => {
+            if let Ok(mut ui) = app.sim.world.resource::<super::state::UiShare>().ui.lock() {
+                if !ui.chooser_picks.contains(&name) && ui.chooser_picks.len() < 10 {
+                    ui.chooser_picks.push(name);
+                }
+            }
+        }
+        UiAct::ChooserRemove(idx) => {
+            if let Ok(mut ui) = app.sim.world.resource::<super::state::UiShare>().ui.lock() {
+                if idx < ui.chooser_picks.len() {
+                    ui.chooser_picks.remove(idx);
+                }
+            }
+        }
+        UiAct::ConfirmSeedChooser => {
+            confirm_chooser(app);
+        }
     }
 }
 
-/// Settings dialog: three volume rows, language list, Save/Back.
-/// Mirrors the bevy `settings_ui` (volumes apply immediately, Save
-/// persists to `save.ron`).
+/// Settings dialog in a wood panel: three volume rows, language list,
+/// Save/Back. Volumes apply immediately, Save persists to `save.ron`.
 fn settings_view(app: &mut PilotApp) -> View {
     let (master, sfx, music, current_lang) = {
         let share = app.sim.world.resource::<super::state::UiShare>();
         let ui = share.ui.lock().unwrap();
         (ui.master_vol, ui.sfx_vol, ui.music_vol, ui.language.clone())
     };
-    let mut rows: Vec<View> = vec![Text(t(app, "settings")).size(24.0)];
+    let settings_title = t(app, "settings");
+    let master_label = t(app, "master-volume");
+    let sfx_label = t(app, "sfx-volume");
+    let music_label = t(app, "music-volume");
+    let lang_label = t(app, "language");
+    let save_label = t(app, "save");
+    let back_label = t(app, "back");
+    let codes = app.i18n.available();
+
+    let mut children: Vec<View> = vec![title_text(settings_title), spacer(12.0)];
     for (label, value, channel) in [
-        (t(app, "master-volume"), master, VolChannel::Master),
-        (t(app, "sfx-volume"), sfx, VolChannel::Sfx),
-        (t(app, "music-volume"), music, VolChannel::Music),
+        (master_label, master, VolChannel::Master),
+        (sfx_label, sfx, VolChannel::Sfx),
+        (music_label, music, VolChannel::Music),
     ] {
-        let app_ptr = app as *mut PilotApp;
         let down = UiAct::BumpVol(channel, false);
-        let app_ptr2 = app as *mut PilotApp;
         let up = UiAct::BumpVol(channel, true);
-        rows.push(
-            Row(Modifier::new().gap(6.0)).child((
-                Text(format!("{label} {:3.0}%", value * 100.0)).size(16.0),
-                UiBox(
-                    Modifier::new()
-                        .background(Color::from_rgba(70, 70, 90, 255))
-                        .padding(6.0)
-                        .on_click(move || {
-                            let app = unsafe { &mut *app_ptr };
-                            apply_act(app, down.clone());
-                        }),
-                )
-                .child(Text("-".to_string()).size(16.0)),
-                UiBox(
-                    Modifier::new()
-                        .background(Color::from_rgba(70, 70, 90, 255))
-                        .padding(6.0)
-                        .on_click(move || {
-                            let app = unsafe { &mut *app_ptr2 };
-                            apply_act(app, up.clone());
-                        }),
-                )
-                .child(Text("+".to_string()).size(16.0)),
-            )),
-        );
-        let _ = app_ptr;
+        children.push(vol_row(app, &label, value, down, up));
+        children.push(spacer(8.0));
     }
-    rows.push(Text(t(app, "language")).size(18.0));
-    for code in app.i18n.available() {
-        let app_ptr = app as *mut PilotApp;
-        let label = if code == current_lang {
+    children.push(
+        Text(format!("{lang_label}:"))
+            .size(18.0)
+            .color(Color::WHITE),
+    );
+    for code in codes {
+        let selected = code == current_lang;
+        let label = if selected {
             format!("[x] {code}")
         } else {
             format!("[ ] {code}")
         };
-        rows.push(
-            UiBox(
-                Modifier::new()
-                    .background(Color::from_rgba(50, 70, 50, 255))
-                    .padding(6.0)
-                    .on_click(move || {
-                        let app = unsafe { &mut *app_ptr };
-                        apply_act(app, UiAct::SetLanguage(code.clone()));
-                    }),
-            )
-            .child(Text(label).size(16.0)),
-        );
+        children.push(lang_row(app, label, selected, UiAct::SetLanguage(code)));
     }
-    let app_ptr = app as *mut PilotApp;
-    let save_label = t(app, "save");
-    let app_ptr2 = app as *mut PilotApp;
-    let back_label = t(app, "back");
-    rows.push(
-        Row(Modifier::new().gap(8.0)).child((
-            UiBox(
-                Modifier::new()
-                    .background(Color::from_rgba(60, 120, 60, 255))
-                    .padding(8.0)
-                    .on_click(move || {
-                        let app = unsafe { &mut *app_ptr };
-                        apply_act(app, UiAct::SaveSettings);
-                    }),
-            )
-            .child(Text(save_label).size(18.0)),
-            UiBox(
-                Modifier::new()
-                    .background(Color::from_rgba(70, 70, 90, 255))
-                    .padding(8.0)
-                    .on_click(move || {
-                        let app = unsafe { &mut *app_ptr2 };
-                        apply_act(app, UiAct::CloseOverlay);
-                    }),
-            )
-            .child(Text(back_label).size(18.0)),
-        )),
-    );
-    Column(Modifier::new().gap(6.0)).child(rows)
+    children.push(spacer(16.0));
+    let save = menu_btn(app, save_label, 130.0, 42.0, UiAct::SaveSettings);
+    let back = menu_btn(app, back_label, 130.0, 42.0, UiAct::CloseOverlay);
+    children.push(Row(Modifier::new().gap(10.0)).child((save, back)));
+
+    center_modal(wood_panel(360.0, None, children))
 }
 
-/// Credits dialog. Body copy is hardcoded like the bevy build; only
-/// the title/Back button go through i18n.
-fn credits_view(app: &mut PilotApp) -> View {
+fn vol_row(app: &mut PilotApp, label: &str, value: f32, down: UiAct, up: UiAct) -> View {
+    let minus = menu_btn(app, "-".to_string(), 42.0, 34.0, down);
+    let plus = menu_btn(app, "+".to_string(), 42.0, 34.0, up);
+    Row(Modifier::new().gap(8.0).align_items(AlignItems::CENTER)).child((
+        Text(format!("{label}: {:.0}%", value * 100.0))
+            .size(16.0)
+            .color(Color::WHITE)
+            .font_weight(FontWeight::BOLD),
+        minus,
+        plus,
+    ))
+}
+
+fn lang_row(app: &mut PilotApp, label: String, selected: bool, act: UiAct) -> View {
     let app_ptr = app as *mut PilotApp;
-    let back_label = t(app, "back");
-    Column(Modifier::new().gap(10.0)).child((
-        Text(t(app, "help")).size(24.0),
-        Text(t(app, "credits-line-1")).size(16.0),
-        Text(t(app, "credits-line-2")).size(16.0),
-        Text(t(app, "credits-line-3")).size(16.0),
-        Text(t(app, "credits-line-4")).size(16.0),
-        UiBox(
-            Modifier::new()
-                .background(Color::from_rgba(70, 70, 90, 255))
-                .padding(8.0)
-                .on_click(move || {
-                    let app = unsafe { &mut *app_ptr };
-                    apply_act(app, UiAct::CloseOverlay);
-                }),
-        )
-        .child(Text(back_label).size(18.0)),
+    ZStack(
+        Modifier::new()
+            .width(200.0)
+            .height(36.0)
+            .background(if selected {
+                col(104, 72, 34)
+            } else {
+                col(60, 55, 50)
+            })
+            .border(
+                2.0,
+                if selected {
+                    col(255, 230, 60)
+                } else {
+                    col(120, 110, 95)
+                },
+                7.0,
+            )
+            .clip_rounded(7.0)
+            .on_click(move || {
+                let app = unsafe { &mut *app_ptr };
+                apply_act(app, act.clone());
+            })
+            .cursor(CursorIcon::Pointer),
+    )
+    .child(
+        Center(Modifier::new().fill_max_size()).child(
+            Text(label)
+                .size(16.0)
+                .color(Color::WHITE)
+                .font_weight(FontWeight::BOLD),
+        ),
+    )
+}
+
+/// Credits dialog. Body copy goes through i18n like the old build; only
+/// the Back button chrome is code-side.
+fn credits_view(app: &mut PilotApp) -> View {
+    let title = t(app, "help");
+    let l1 = t(app, "credits-line-1");
+    let l2 = t(app, "credits-line-2");
+    let l3 = t(app, "credits-line-3");
+    let l4 = t(app, "credits-line-4");
+    let back = t(app, "back");
+    center_modal(wood_panel(
+        500.0,
+        None,
+        vec![
+            title_text(title),
+            spacer(12.0),
+            body_text(l1),
+            dim_text(l2),
+            dim_text(l3),
+            spacer(8.0),
+            body_text(l4),
+            spacer(16.0),
+            menu_btn(app, back, 150.0, 42.0, UiAct::CloseOverlay),
+        ],
     ))
 }
 
 fn seed_chooser(app: &mut PilotApp) -> View {
-    // Simplified chooser: toggle unlocked seeds (max 10), confirm builds
-    // the bank and enters the level. Mirrors ConfirmSeedChooser.
     let (picks, unlocked) = {
         let share = app.sim.world.resource::<super::state::UiShare>();
         let ui = share.ui.lock().unwrap();
         (ui.chooser_picks.clone(), ui.unlocked_seed_names.clone())
     };
-    let mut rows: Vec<View> = vec![Text(t(app, "choose-your-seeds")).size(24.0)];
-    for name in unlocked {
-        let picked = picks.contains(&name);
-        let app_ptr = app as *mut PilotApp;
-        let label = format!(
-            "{} {}",
-            if picked { "[x]" } else { "[ ]" },
-            t_seed(app, &name)
-        );
-        let toggle_name = name.clone();
-        rows.push(
-            UiBox(
-                Modifier::new()
-                    .background(Color::from_rgba(50, 70, 50, 255))
-                    .padding(6.0)
-                    .on_click(move || {
-                        let app = unsafe { &mut *app_ptr };
-                        if let Ok(mut ui) =
-                            app.sim.world.resource::<super::state::UiShare>().ui.lock()
-                        {
-                            if let Some(pos) =
-                                ui.chooser_picks.iter().position(|p| *p == toggle_name)
-                            {
-                                ui.chooser_picks.remove(pos);
-                            } else if ui.chooser_picks.len() < 10 {
-                                ui.chooser_picks.push(toggle_name.clone());
-                            }
-                        }
-                    }),
-            )
-            .child(Text(label).size(16.0)),
-        );
-    }
-    let app_ptr = app as *mut PilotApp;
-    let rock_label = t(app, "lets-rock");
-    let app_ptr2 = app as *mut PilotApp;
+    let title = t(app, "choose-your-seeds");
+    let bank_label = t(app, "your-bank");
+    let avail_label = t(app, "available-packets");
+    let empty_label = t(app, "pick-seeds");
     let back_label = t(app, "back");
-    rows.push(
-        Row(Modifier::new().gap(8.0)).child((
-            UiBox(
-                Modifier::new()
-                    .background(Color::from_rgba(60, 120, 60, 255))
-                    .padding(8.0)
-                    .on_click(move || {
-                        let app = unsafe { &mut *app_ptr };
-                        confirm_chooser(app);
-                    }),
-            )
-            .child(Text(rock_label).size(18.0)),
-            UiBox(
-                Modifier::new()
-                    .background(Color::from_rgba(70, 70, 90, 255))
-                    .padding(8.0)
-                    .on_click(move || {
-                        let app = unsafe { &mut *app_ptr2 };
-                        apply_act(app, UiAct::CloseOverlay);
-                    }),
-            )
-            .child(Text(back_label).size(18.0)),
-        )),
-    );
-    Column(Modifier::new().gap(6.0)).child(rows)
+    let rock_label = t(app, "lets-rock");
+
+    // Chosen bank strip (dark inset bar, parchment tiles).
+    let mut chosen_children: Vec<View> = Vec::new();
+    if picks.is_empty() {
+        chosen_children.push(dim_text(empty_label));
+    }
+    for (i, name) in picks.iter().enumerate() {
+        let cost = super::comps::seed_def(name).map(|d| d.cost).unwrap_or(0);
+        let color = super::comps::seed_def(name)
+            .map(|d| packet_color(d.color))
+            .unwrap_or(col(95, 150, 75));
+        let shown = short_seed(app, name);
+        chosen_children.push(packet_tile(
+            app,
+            shown,
+            cost,
+            color,
+            false,
+            UiAct::ChooserRemove(i),
+        ));
+    }
+    let chosen_row = Row(Modifier::new()
+        .height(SEED_PACKET_H + 8.0)
+        .padding(4.0)
+        .gap(4.0)
+        .background(col(38, 26, 13))
+        .border(2.0, col(25, 16, 7), 6.0)
+        .clip_rounded(6.0))
+    .child(chosen_children);
+
+    // Available packets grid (8 columns, locked seeds hidden).
+    let mut tiles: Vec<View> = Vec::new();
+    for def in super::comps::SEED_DEFS {
+        let name = def.name;
+        if !unlocked.iter().any(|u| u == name) {
+            continue;
+        }
+        let picked = picks.iter().any(|p| p == name);
+        let shown = short_seed(app, name);
+        tiles.push(packet_tile(
+            app,
+            shown,
+            def.cost,
+            packet_color(def.color),
+            picked,
+            UiAct::ChooserPick(name.to_string()),
+        ));
+    }
+    let available_grid = Grid(8, Modifier::new(), tiles, 8.0, 8.0);
+
+    center_modal(wood_panel(
+        720.0,
+        Some(530.0),
+        vec![
+            title_text(title),
+            spacer(8.0),
+            body_text(bank_label),
+            spacer(6.0),
+            chosen_row,
+            spacer(14.0),
+            body_text(avail_label),
+            spacer(6.0),
+            available_grid,
+            spacer(16.0),
+            Row(Modifier::new().gap(12.0)).child((
+                menu_btn(app, back_label, 130.0, 44.0, UiAct::CloseOverlay),
+                menu_btn(app, rock_label, 180.0, 50.0, UiAct::ConfirmSeedChooser),
+            )),
+        ],
+    ))
 }
 
 fn confirm_chooser(app: &mut PilotApp) {
@@ -904,6 +1742,7 @@ fn confirm_chooser(app: &mut PilotApp) {
     if let Ok(mut ui) = app.sim.world.resource::<super::state::UiShare>().ui.lock() {
         ui.phase = PilotPhase::InGame;
     }
+    begin_transition(app);
 }
 
 /// Seed chooser entry from title: copies bank-eligible picks then opens.

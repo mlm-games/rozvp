@@ -2,14 +2,18 @@
 //! order (Economy, Combat, Combat2); the driver advances integer 100 Hz
 //! ticks through `Sim::tick()` and enforces pause/overlay blocking.
 
+use std::cell::Cell;
+use std::rc::Rc;
 use std::time::Duration;
 
 use repame_shell::Sim;
 use repame_sim::bevy_ecs::prelude::*;
+use repame_sim::bevy_ecs::schedule::IntoScheduleConfigs;
 
 use super::audio::PilotAudio;
 use super::combat;
 use super::economy;
+use super::fx;
 use super::i18n::Localizer;
 use super::levels;
 use super::state::{
@@ -26,6 +30,11 @@ pub struct PilotApp {
     pub audio: PilotAudio,
     pub i18n: Localizer,
     accumulator: f32,
+    /// Board fit for the current window: `(scale, offset_x, offset_y)` in
+    /// dp. Written by the board canvas at paint time (it alone knows the
+    /// real canvas size), read at compose/event time for rig layout and
+    /// click mapping. Lags a resize by at most one frame.
+    pub board_fit: Rc<Cell<(f32, f32, f32)>>,
 }
 
 impl PilotApp {
@@ -42,38 +51,60 @@ impl PilotApp {
         sim.world.init_resource::<ClickQueue>();
         sim.world.init_resource::<FlowControl>();
         sim.world.init_resource::<UiShare>();
+        repame_fx::init_resources(&mut sim.world);
 
-        // Economy chain (mirrors GamePlugin order).
-        sim.add_system(economy::reset_click_consumed);
-        sim.add_system(economy::tick_seed_recharge);
-        sim.add_system(economy::spawn_sky_sun);
-        sim.add_system(economy::fall_and_expire_suns);
-        sim.add_system(economy::tick_sun_producers);
-        sim.add_system(economy::collect_sun_clicks);
-        sim.add_system(economy::handle_board_clicks);
-        sim.add_system(levels::start_wave_if_needed);
-        sim.add_system(levels::spawn_wave_zombies);
-        // Combat chain.
-        sim.add_system(combat::tick_plants_and_fire);
-        sim.add_system(combat::move_peas_and_hit);
-        sim.add_system(combat::tick_cherry_bombs);
-        sim.add_system(combat::tick_potato_mines);
-        sim.add_system(combat::tick_chompers);
-        sim.add_system(combat::tick_squash);
-        sim.add_system(combat::tick_jalapenos);
-        sim.add_system(combat::tick_spikeweeds);
-        sim.add_system(combat::tick_ice_shrooms);
-        sim.add_system(combat::tick_doom_shrooms);
-        sim.add_system(combat::move_and_eat_zombies);
-        sim.add_system(combat::run_mowers);
-        sim.add_system(combat::lose_on_house_reach);
-        sim.add_system(levels::advance_or_complete_level);
-        sim.add_system(levels::tick_advice);
-        sim.add_system(economy::sync_ui);
-        // Combat2 chain.
-        sim.add_system(combat::tick_craters);
-        sim.add_system(combat::resolve_hypno_combat);
-        sim.add_system(combat::step_dying);
+        // One chained schedule: a bare `Schedule` does not preserve
+        // insertion order for conflicting systems (probed: planting ran
+        // before sun pickup), so the bevy chain order (Economy, Combat,
+        // Combat2) is enforced with nested `.chain()` groups (bevy tuples
+        // cap at 20 systems).
+        sim.add_chained_systems(
+            (
+                (
+                    // Economy chain (mirrors GamePlugin order).
+                    economy::reset_click_consumed,
+                    economy::tick_seed_recharge,
+                    economy::spawn_sky_sun,
+                    economy::fall_and_expire_suns,
+                    economy::tick_sun_producers,
+                    economy::collect_sun_clicks,
+                    economy::handle_board_clicks,
+                    levels::start_wave_if_needed,
+                    levels::spawn_wave_zombies,
+                )
+                    .chain(),
+                (
+                    // Combat chain.
+                    combat::tick_plants_and_fire,
+                    combat::move_peas_and_hit,
+                    combat::tick_cherry_bombs,
+                    combat::tick_potato_mines,
+                    combat::tick_chompers,
+                    combat::tick_squash,
+                    combat::tick_jalapenos,
+                    combat::tick_spikeweeds,
+                    combat::tick_ice_shrooms,
+                    combat::tick_doom_shrooms,
+                    combat::move_and_eat_zombies,
+                    combat::run_mowers,
+                    combat::lose_on_house_reach,
+                    levels::advance_or_complete_level,
+                    levels::tick_advice,
+                    economy::sync_ui,
+                )
+                    .chain(),
+                (
+                    // Combat2 chain.
+                    combat::tick_craters,
+                    combat::resolve_hypno_combat,
+                    combat::step_dying,
+                    // Juice runs on sim time (frozen while paused).
+                    fx::step_fx,
+                )
+                    .chain(),
+            )
+                .chain(),
+        );
 
         Self {
             sim,
@@ -81,23 +112,35 @@ impl PilotApp {
             audio: PilotAudio::new(),
             i18n: Localizer::new(),
             accumulator: 0.0,
+            board_fit: Rc::new(Cell::new((1.0, 0.0, 0.0))),
         }
     }
 
     /// Advance wall-clock time (seconds) into whole 100 Hz ticks.
-    /// Blocked while paused or any overlay is up (mirrors the bevy
-    /// run-conditions). Returns ticks run.
+    /// Blocked while paused, overlayed, or mid-transition (mirrors the
+    /// bevy run-conditions plus transition input blocking). The
+    /// transition itself steps on real ticks so it can always unblock.
+    /// Returns ticks run.
     pub fn advance(&mut self, dt_secs: f32) -> i32 {
-        let blocked = self.sim.world.resource::<FlowControl>().sim_blocked();
-        if blocked {
-            self.sim.world.resource_mut::<FrameTicks>().0 = 0;
-            return 0;
-        }
         self.accumulator += dt_secs * 100.0;
         let mut whole = self.accumulator.floor() as i32;
         self.accumulator -= whole as f32;
         // Clamp spiral-of-death: max 10 ticks per frame at 100 Hz.
         whole = whole.min(10);
+        self.sim
+            .world
+            .resource_mut::<repame_fx::TransitionFx>()
+            .step(whole);
+        let blocked = self.sim.world.resource::<FlowControl>().sim_blocked()
+            || self
+                .sim
+                .world
+                .resource::<repame_fx::TransitionFx>()
+                .blocking();
+        if blocked {
+            self.sim.world.resource_mut::<FrameTicks>().0 = 0;
+            return 0;
+        }
         for _ in 0..whole {
             {
                 let mut time = self.sim.world.resource_mut::<GameTime>();
@@ -123,6 +166,18 @@ impl PilotApp {
         for e in owned {
             self.sim.world.despawn(e);
         }
+        // Juice owns no cleanup tags: clear fx entities explicitly.
+        let fx_left: Vec<Entity> = {
+            let mut q = self.sim.world.query_filtered::<Entity, Or<(
+                With<repame_fx::Particle>,
+                With<repame_fx::Spawner>,
+                With<repame_fx::DamageNumber>,
+            )>>();
+            q.iter(&self.sim.world).collect()
+        };
+        for e in fx_left {
+            self.sim.world.despawn(e);
+        }
         self.rigs.hosts.clear();
         self.sim.world.resource_mut::<Board>().reset();
         self.sim.world.resource_mut::<SunStats>().collected_total = 0;
@@ -132,7 +187,11 @@ impl PilotApp {
             .recharge_remaining
             .clear();
         self.sim.world.resource_mut::<ClickConsumedThisFrame>().0 = false;
+        self.sim.world.resource_mut::<ClickQueue>().clicks.clear();
         *self.sim.world.resource_mut::<AdviceState>() = AdviceState::default();
+        *self.sim.world.resource_mut::<repame_fx::Trauma>() = repame_fx::Trauma::new();
+        *self.sim.world.resource_mut::<repame_fx::Flash>() = repame_fx::Flash::default();
+        *self.sim.world.resource_mut::<repame_fx::TransitionFx>() = repame_fx::TransitionFx::new();
         {
             let mut flow = self.sim.world.resource_mut::<FlowControl>();
             flow.paused = false;

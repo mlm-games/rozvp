@@ -15,12 +15,12 @@ use super::state::{
 };
 use crate::pilot::constants::*;
 
-pub fn reset_click_consumed(
-    mut consumed: ResMut<ClickConsumedThisFrame>,
-    mut queue: ResMut<ClickQueue>,
-) {
+/// Reset the per-tick click-consumed flag. Must NOT drain `ClickQueue`:
+/// views push clicks during compose (after the frame's ticks ran), so the
+/// queue carries them into the *next* frame's ticks — clearing here would
+/// delete every click before `collect_sun_clicks` ever sees it.
+pub fn reset_click_consumed(mut consumed: ResMut<ClickConsumedThisFrame>) {
     consumed.0 = false;
-    queue.clicks.clear();
 }
 
 pub fn tick_seed_recharge(frame_ticks: Res<FrameTicks>, mut runtime: ResMut<SeedBankRuntime>) {
@@ -97,6 +97,7 @@ pub fn fall_and_expire_suns(
 }
 
 /// Sun pickup from the click queue (sun first, planting after).
+/// Runs before `handle_board_clicks` in the chained schedule.
 pub fn collect_sun_clicks(
     mut commands: Commands,
     mut queue: ResMut<ClickQueue>,
@@ -106,7 +107,13 @@ pub fn collect_sun_clicks(
     mut consumed: ResMut<ClickConsumedThisFrame>,
     mut stats: ResMut<SunStats>,
 ) {
+    if queue.clicks.is_empty() {
+        return;
+    }
     if flow.overlay != Overlay::None {
+        // Modal up (pause/dialogs): drop board clicks queued behind the
+        // scrim so nothing fires on unpause.
+        queue.clicks.clear();
         return;
     }
     let mut kept = Vec::new();
@@ -123,7 +130,23 @@ pub fn collect_sun_clicks(
                 board.sun += sun.value;
                 stats.collected_total += 1;
                 consumed.0 = true;
+                let (sx, sy, value) = (pos.x, pos.y, sun.value);
                 commands.entity(e).try_despawn();
+                repame_fx::burst(
+                    &mut commands,
+                    sx,
+                    sy,
+                    &super::fx::sparkle(),
+                    8,
+                    &mut rand::rng(),
+                );
+                repame_fx::spawn_number(
+                    &mut commands,
+                    sx,
+                    sy - 20.0,
+                    format!("+{value}"),
+                    [1.0, 0.9, 0.25, 1.0],
+                );
                 picked = true;
                 break;
             }
@@ -144,7 +167,13 @@ pub fn handle_board_clicks(
     consumed: Res<ClickConsumedThisFrame>,
     mut queue: ResMut<ClickQueue>,
 ) {
+    if queue.clicks.is_empty() {
+        return;
+    }
     if consumed.0 || flow.overlay != Overlay::None {
+        if flow.overlay != Overlay::None {
+            queue.clicks.clear();
+        }
         return;
     }
     let click = queue.clicks.first().copied();

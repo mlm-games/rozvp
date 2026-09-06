@@ -131,11 +131,24 @@ pub fn frame_input(world: &mut World, viewport_px: [f32; 2]) -> FrameInput {
     for (_, pos) in craters.iter(world) {
         sprites.push(quad(pos.x, pos.y, 70.0, 60.0, [0.15, 0.12, 0.10, 1.0]));
     }
+    // Juice: particles render as tinted rects through the same batch.
+    let mut pq = world.query::<&repame_fx::Particle>();
+    sprites.extend(repame_fx::particle_sprites(pq.iter(world)));
+    // Trauma shakes the camera only (sim positions stay clean).
+    let mut cam = board_camera();
+    {
+        let trauma = world.resource::<repame_fx::Trauma>();
+        let time = world.resource::<GameTime>().ticks as f32 / 100.0;
+        let (dx, dy, _) = trauma.offset(time);
+        cam.center.x += dx;
+        cam.center.y += dy;
+    }
+    let overlay_color = world.resource::<repame_fx::Flash>().rgba();
     FrameInput {
-        cam: board_camera(),
+        cam,
         viewport_px,
         sprites,
-        overlay_color: None,
+        overlay_color,
     }
 }
 

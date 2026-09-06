@@ -180,4 +180,8 @@ pub const POINT_BUCKET: u32 = 4;
 pub const HUGE_WAVE_ADVICE_TICKS: i32 = 400;
 
 // Misc engine feel ────────────────────────────────────────
-pub const SUN_PICK_RADIUS: f32 = 28.0;
+// Forgiving sun pickup: the sun visual is 28x28 logic px and suns keep
+// falling while the player aims, so the grab area is roughly double the
+// visual (PvZ-likes are generous here). Pointer mapping itself stays
+// exact; this is game feel, not a mapping fudge.
+pub const SUN_PICK_RADIUS: f32 = 56.0;
