@@ -6,17 +6,25 @@
 //! through the platform runner (`gamepad` feature); pointer input arrives
 //! as view events (see views).
 
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 use std::time::{Duration, Instant};
 
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 use super::audio::Cue;
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 use super::sim::PilotApp;
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 use super::state::{Overlay, PilotPhase};
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 use super::{save, views};
 
 const SPLASH_SECS: f32 = 1.5;
 const LOADING_SECS: f32 = 0.5;
 
 /// Run the pilot shell (splash phase; levels start from the title hub).
+/// Desktop only: `repame_shell::run_desktop` has no mobile/web backend,
+/// and the bevy entry (`lib::run`) serves those targets.
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 pub fn run() -> anyhow::Result<()> {
     let mut app = PilotApp::new();
     boot_from_save(&mut app);
@@ -37,6 +45,7 @@ pub fn run() -> anyhow::Result<()> {
 }
 
 /// Load save (if any) into the UI share, language, and audio channels.
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 fn boot_from_save(app: &mut PilotApp) {
     let data = save::load();
     if let Ok(mut ui) = app.sim.world.resource::<super::state::UiShare>().ui.lock() {
@@ -52,6 +61,7 @@ fn boot_from_save(app: &mut PilotApp) {
 
 /// Splash -> Loading -> Title on wall-clock timers. Only moves forward
 /// (never yanks an in-progress game back to title).
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 fn advance_boot_phase(app: &mut PilotApp, elapsed: Duration) {
     let Ok(mut ui) = app.sim.world.resource::<super::state::UiShare>().ui.lock() else {
         return;
@@ -66,6 +76,7 @@ fn advance_boot_phase(app: &mut PilotApp, elapsed: Duration) {
 }
 
 /// One-shot stingers on overlay transitions (win/lose moments).
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 fn poll_overlay_stingers(app: &mut PilotApp, last_overlay: &mut Overlay) {
     let overlay = app
         .sim
@@ -82,6 +93,7 @@ fn poll_overlay_stingers(app: &mut PilotApp, last_overlay: &mut Overlay) {
     }
 }
 
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 fn progress(app: &PilotApp) -> f32 {
     app.sim
         .world
@@ -90,6 +102,12 @@ fn progress(app: &PilotApp) -> f32 {
         .lock()
         .map(|ui| ui.progress)
         .unwrap_or(0.0)
+}
+
+/// Mobile/web fallback: the pilot shell has no runner there.
+#[cfg(any(target_os = "android", target_arch = "wasm32"))]
+pub fn run() -> anyhow::Result<()> {
+    anyhow::bail!("rozvp-repose pilot shell is desktop-only")
 }
 
 #[cfg(test)]
