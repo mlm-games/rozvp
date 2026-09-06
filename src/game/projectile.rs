@@ -80,7 +80,11 @@ pub fn tick_plants_and_fire(
         commands.spawn((
             GameplayCleanup,
             PeaProjectile {
-                kind: if is_snow { PeaKind::Snow } else { PeaKind::Normal },
+                kind: if is_snow {
+                    PeaKind::Snow
+                } else {
+                    PeaKind::Normal
+                },
                 row: plant.row,
                 damage: PEA_DAMAGE,
                 speed_pps: PEA_SPEED_PPS,

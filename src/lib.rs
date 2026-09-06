@@ -3,6 +3,8 @@ mod asset_tracking;
 mod dev_tools;
 mod game;
 mod menus;
+#[cfg(feature = "repose-shell")]
+pub mod pilot;
 mod save;
 mod screens;
 mod theme;

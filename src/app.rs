@@ -227,6 +227,7 @@ impl Plugin for AppPlugin {
                     compose_every_frame: true,
                     msaa_samples: 1,
                     overlay: true,
+                    ..Default::default()
                 },
                 move |_s, _c| {
                     let st = shared_ui.lock().unwrap().clone();

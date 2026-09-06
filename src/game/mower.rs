@@ -45,10 +45,7 @@ pub fn run_mowers(
     mut commands: Commands,
     frame_ticks: Res<FrameTicks>,
     mut mowers: Query<(Entity, &mut LawnMower, &mut Transform), Without<Zombie>>,
-    zombies: Query<
-        (Entity, &Zombie, &Transform, Has<Dying>),
-        Without<crate::game::systems::Plant>,
-    >,
+    zombies: Query<(Entity, &Zombie, &Transform, Has<Dying>), Without<crate::game::systems::Plant>>,
 ) {
     if frame_ticks.0 <= 0 {
         return;

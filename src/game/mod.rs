@@ -59,7 +59,10 @@ impl Plugin for GamePlugin {
             .add_systems(OnExit(AppState::InGame), systems::exit_level)
             // Runs even while paused: consumes UI restart requests from
             // Pause/GameOver overlays, swaps the level and unpauses.
-            .add_systems(Update, systems::apply_restart.run_if(in_state(AppState::InGame)))
+            .add_systems(
+                Update,
+                systems::apply_restart.run_if(in_state(AppState::InGame)),
+            )
             // The gameplay chain exceeds Bevy's 20-system tuple limit, so it is
             // split into chained sets; total order is preserved.
             .configure_sets(

@@ -90,11 +90,7 @@ fn zombie_base_rgb(z: &Zombie) -> (f32, f32, f32) {
 fn tint_rgb(base: (f32, f32, f32), target: (f32, f32, f32), t: f32) -> Color {
     let (r1, g1, b1) = base;
     let (r2, g2, b2) = target;
-    Color::srgb(
-        r1 + (r2 - r1) * t,
-        g1 + (g2 - g1) * t,
-        b1 + (b2 - b1) * t,
-    )
+    Color::srgb(r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t)
 }
 
 fn wallnut_color(hp: i32) -> Color {

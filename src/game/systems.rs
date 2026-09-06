@@ -7,7 +7,7 @@ use rand::RngExt;
 use crate::app::{OverlayMenu, Paused};
 use crate::game::board::Board;
 use crate::game::constants::*;
-use crate::game::defs::{seed_def, PlantKind};
+use crate::game::defs::{PlantKind, seed_def};
 use crate::game::specials::CherryBombFuse;
 use crate::game::sunflower::SunProducer;
 use crate::game::tick::{FrameTicks, GameTime};
@@ -163,7 +163,10 @@ fn spawn_level_entities(commands: &mut Commands, stage: crate::game::board::Stag
             ..default()
         },
         Board::logic_to_world(
-            Vec2::new(LAWN_XMIN * 0.5, LAWN_YMIN + GRID_CELL_H * LAWN_ROWS as f32 * 0.5),
+            Vec2::new(
+                LAWN_XMIN * 0.5,
+                LAWN_YMIN + GRID_CELL_H * LAWN_ROWS as f32 * 0.5,
+            ),
             -11.0,
         ),
     ));
@@ -312,8 +315,9 @@ pub fn fall_and_expire_suns(
     }
     for (e, mut tf, sky, sun) in &mut suns {
         if let Some(sky) = sky {
-            let target_world_y =
-                Board::logic_to_world(Vec2::ZERO.with_y(sky.target_logic_y), 0.0).translation.y;
+            let target_world_y = Board::logic_to_world(Vec2::ZERO.with_y(sky.target_logic_y), 0.0)
+                .translation
+                .y;
             // Falling = decreasing world y toward the target.
             if tf.translation.y > target_world_y {
                 tf.translation.y -= SUN_FALL_SPEED_PPS * frame_ticks.0 as f32 / TICK_HZ;
@@ -429,7 +433,13 @@ pub fn handle_board_clicks(
         }
     };
 
-    if runtime.recharge_remaining.get(slot_idx).copied().unwrap_or(0) > 0 {
+    if runtime
+        .recharge_remaining
+        .get(slot_idx)
+        .copied()
+        .unwrap_or(0)
+        > 0
+    {
         clear_selection(&mut ui);
         return;
     }

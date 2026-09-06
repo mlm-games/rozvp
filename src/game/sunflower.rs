@@ -5,7 +5,7 @@ use rand::RngExt;
 
 use crate::game::board::Board;
 use crate::game::constants::{
-    SUNFLOWER_FIRST_SUN_TICKS, SUNFLOWER_SUN_INTERVAL_TICKS, SUNFLOWER_SUN_VALUE, SUN_Z,
+    SUN_Z, SUNFLOWER_FIRST_SUN_TICKS, SUNFLOWER_SUN_INTERVAL_TICKS, SUNFLOWER_SUN_VALUE,
 };
 use crate::game::defs::PlantKind;
 use crate::game::systems::{GameplayCleanup, Plant, SunDrop};

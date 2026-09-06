@@ -7,7 +7,7 @@
 
 use bevy::prelude::*;
 
-use crate::game::constants::{TICK_HZ, TICK};
+use crate::game::constants::{TICK, TICK_HZ};
 use crate::game::systems::Plant;
 use crate::game::tick::FrameTicks;
 use crate::game::zombie::Zombie;
@@ -136,20 +136,24 @@ pub fn apply_zombie_sheet(
         );
         sprite.color = tint;
         sprite.custom_size = Some(Vec2::new(DISPLAY_W, DISPLAY_H));
-        commands
-            .entity(e)
-            .insert(ZombieAnim {
-                state: AnimState::Walk,
-                frame: 0,
-                acc: 0.0,
-            });
+        commands.entity(e).insert(ZombieAnim {
+            state: AnimState::Walk,
+            frame: 0,
+            acc: 0.0,
+        });
     }
 }
 
 /// Select the clip from gameplay state and orient the sprite.
 pub fn sync_zombie_anim(
     mut zombies: Query<
-        (&Zombie, &mut ZombieAnim, &mut Sprite, Has<Eating>, Has<Dying>),
+        (
+            &Zombie,
+            &mut ZombieAnim,
+            &mut Sprite,
+            Has<Eating>,
+            Has<Dying>,
+        ),
         Without<Plant>,
     >,
 ) {

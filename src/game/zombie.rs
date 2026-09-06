@@ -477,9 +477,7 @@ pub fn move_and_eat_zombies(
         // Spikeweed is ground cover: walked over, never blocked or eaten.
         let mut blocking: Option<Entity> = None;
         for (p_e, plant, _p_tf, _mine) in &mut plants {
-            if plant.row != zombie.row
-                || plant.kind == crate::game::defs::PlantKind::Spikeweed
-            {
+            if plant.row != zombie.row || plant.kind == crate::game::defs::PlantKind::Spikeweed {
                 continue;
             }
             let p_x = Board::grid_center_logic(plant.col, plant.row).x;
@@ -490,9 +488,10 @@ pub fn move_and_eat_zombies(
         }
 
         if let Some(p_e) = blocking {
-            commands.entity(z_e).insert(crate::game::zombie_anim::Eating);
-            zombie.eat_cooldown_remaining =
-                (zombie.eat_cooldown_remaining - frame_ticks.0).max(0);
+            commands
+                .entity(z_e)
+                .insert(crate::game::zombie_anim::Eating);
+            zombie.eat_cooldown_remaining = (zombie.eat_cooldown_remaining - frame_ticks.0).max(0);
 
             if let Ok((plant_e, mut plant, _p_tf, mine_state)) = plants.get_mut(p_e) {
                 // Armed Potato Mine explodes on contact before normal bite logic.
@@ -533,11 +532,7 @@ pub fn move_and_eat_zombies(
                         };
                         // Degenerate when already at a boundary: go the only way.
                         let new_row = if new_row == zombie.row {
-                            if zombie.row == 0 {
-                                1
-                            } else {
-                                zombie.row - 1
-                            }
+                            if zombie.row == 0 { 1 } else { zombie.row - 1 }
                         } else {
                             new_row
                         };
@@ -782,7 +777,11 @@ mod tests {
 
     #[test]
     fn cherry_bomb_kills_every_kind_in_one_blast() {
-        for kind in [ZombieKind::Normal, ZombieKind::Conehead, ZombieKind::Buckethead] {
+        for kind in [
+            ZombieKind::Normal,
+            ZombieKind::Conehead,
+            ZombieKind::Buckethead,
+        ] {
             let mut z = Zombie::new(kind, 0);
             assert!(z.take_damage(super::super::super::game::constants::CHERRY_BOMB_DAMAGE));
         }
