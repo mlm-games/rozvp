@@ -9,7 +9,7 @@ use repame_sprite::{Camera2d, FrameInput, SpriteInstance};
 
 use super::comps::*;
 use super::state::*;
-use crate::game::constants::*;
+use crate::pilot::constants::*;
 
 fn quad(x: f32, y: f32, w: f32, h: f32, color: [f32; 4]) -> SpriteInstance {
     SpriteInstance {

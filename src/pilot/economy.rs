@@ -13,7 +13,7 @@ use super::state::{
     Board, ClickConsumedThisFrame, ClickQueue, FlowControl, FrameTicks, GameTime, Overlay,
     SeedBankRuntime, Stage, SunStats, UiShare,
 };
-use crate::game::constants::*;
+use crate::pilot::constants::*;
 
 pub fn reset_click_consumed(
     mut consumed: ResMut<ClickConsumedThisFrame>,

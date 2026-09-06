@@ -206,11 +206,7 @@ impl Localizer {
         // A message that fails to format (missing arg, bad placeable) is
         // treated as missing: fall back to English, then the key. A
         // half-rendered `{$count}` must never reach the canvas.
-        if errors.is_empty() {
-            Some(value)
-        } else {
-            None
-        }
+        if errors.is_empty() { Some(value) } else { None }
     }
 }
 
@@ -282,10 +278,7 @@ mod tests {
         let loc = Localizer::new();
         let mut sun = FluentArgs::new();
         sun.set("count", 150);
-        assert_eq!(
-            loc.t_with_args("hud-sun-count", Some(&sun)),
-            "Sun 150"
-        );
+        assert_eq!(loc.t_with_args("hud-sun-count", Some(&sun)), "Sun 150");
         let mut flags = FluentArgs::new();
         flags.set("done", 2);
         flags.set("total", 4);
@@ -303,10 +296,7 @@ mod tests {
         // Other locales render their own word order through the same call.
         let mut fr = Localizer::new();
         assert!(fr.set_language("fr"));
-        assert_eq!(
-            fr.t_with_args("hud-sun-count", Some(&sun)),
-            "Soleil 150"
-        );
+        assert_eq!(fr.t_with_args("hud-sun-count", Some(&sun)), "Soleil 150");
         // Unknown locale falls back to English, never the raw key.
         assert_eq!(loc.t_with_args("hud-sun-count", None), "hud-sun-count");
     }

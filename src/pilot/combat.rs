@@ -14,7 +14,7 @@ use super::comps::{
 use super::state::{
     Board, FlowControl, FrameTicks, grid_center_logic, logic_to_grid, row_center_y,
 };
-use crate::game::constants::*;
+use crate::pilot::constants::*;
 
 /// Lethal damage marker: corpse plays the fall one-shot (`Dying`), rig
 /// listens for the same transition. Explosive/devour kills despawn

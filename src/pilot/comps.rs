@@ -47,8 +47,8 @@ pub struct Zombie {
 
 impl Zombie {
     pub fn new(kind: ZombieKind, row: usize) -> Self {
-        use crate::game::constants::ZOMBIE_SPEED_PPS;
-        use crate::game::constants::{BUCKET_ARMOR_HP, CONE_ARMOR_HP, ZOMBIE_BODY_HP};
+        use crate::pilot::constants::ZOMBIE_SPEED_PPS;
+        use crate::pilot::constants::{BUCKET_ARMOR_HP, CONE_ARMOR_HP, ZOMBIE_BODY_HP};
         let armor_hp = match kind {
             ZombieKind::Normal | ZombieKind::Flag => 0,
             ZombieKind::Conehead => CONE_ARMOR_HP,

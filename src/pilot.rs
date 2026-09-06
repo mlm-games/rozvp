@@ -8,6 +8,7 @@
 pub mod audio;
 pub mod combat;
 pub mod comps;
+pub mod constants;
 pub mod economy;
 pub mod i18n;
 pub mod levels;

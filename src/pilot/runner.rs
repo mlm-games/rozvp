@@ -1,51 +1,108 @@
-//! Pilot runner: boots the repose desktop shell around the sim.
-//! Each frame: wall-clock dt -> sim ticks -> rig sync -> root view.
-//! Boot loads `save.ron` (progress + settings) before the first frame;
-//! splash/loading phases run on wall-clock timers mirroring the bevy
-//! `SplashTimer` (1.5 s) + `LoadingTimer` (0.5 s). Gamepad input flows
-//! through the platform runner (`gamepad` feature); pointer input arrives
-//! as view events (see views).
+//! Platform entries: desktop, web, and android shells around the sim.
+//! Same three-entry shape as the renamite/resims apps: each builds a
+//! `PilotApp`, boots save/i18n/audio, then pumps wall-clock dt -> sim
+//! ticks -> rig sync -> root view every frame. Boot loads `save.ron`
+//! (progress + settings) before the first frame; splash/loading phases
+//! run on wall-clock timers. Gamepad input flows through the platform
+//! runner (`gamepad` feature); pointer input arrives as view events.
 
-#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 use std::time::{Duration, Instant};
 
-#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
 use super::audio::Cue;
-#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 use super::sim::PilotApp;
-#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 use super::state::{Overlay, PilotPhase};
-#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 use super::{save, views};
 
 const SPLASH_SECS: f32 = 1.5;
 const LOADING_SECS: f32 = 0.5;
 
-/// Run the pilot shell (splash phase; levels start from the title hub).
-/// Desktop only: `repame_shell::run_desktop` has no mobile/web backend,
-/// and the bevy entry (`lib::run`) serves those targets.
-#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
-pub fn run() -> anyhow::Result<()> {
-    let mut app = PilotApp::new();
-    boot_from_save(&mut app);
+/// Desktop entry: 1280x720 window, title hub on boot.
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+pub fn desktop_main() -> anyhow::Result<()> {
+    let mut app = boot_app();
     let mut last = Instant::now();
     let boot_at = last;
     let mut last_overlay = Overlay::None;
-    repame_shell::run_desktop("RoZVP pilot", (1280, 720), move |sched, ctx| {
+    repame_shell::run_desktop("RoZVP", (1280, 720), move |sched, ctx| {
         let now = Instant::now();
         let dt = now.duration_since(last).as_secs_f32().min(0.25);
         last = now;
-        advance_boot_phase(&mut app, now.duration_since(boot_at));
-        app.advance(dt);
-        poll_overlay_stingers(&mut app, &mut last_overlay);
-        app.audio.set_intensity(progress(&app));
-        app.audio.update(dt);
+        pump(&mut app, dt, now.duration_since(boot_at), &mut last_overlay);
         views::root_view(sched, ctx, &mut app)
     })
 }
 
+/// Web entry: default canvas, prevent-default on (via the shell).
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(start)]
+pub fn wasm_start() -> Result<(), JsValue> {
+    let mut app = boot_app();
+    let boot_at = Instant::now();
+    let mut last_overlay = Overlay::None;
+    // Web clock: whole 100 Hz ticks from elapsed wall time each frame.
+    let mut last_ticks = 0i64;
+    repame_shell::run_web(move |sched, ctx| {
+        let elapsed = boot_at.elapsed().as_secs_f32();
+        let ticks = (elapsed * 100.0) as i64;
+        let dt = ((ticks - last_ticks).max(0) as f32 / 100.0).min(0.25);
+        last_ticks = ticks;
+        pump(&mut app, dt, boot_at.elapsed(), &mut last_overlay);
+        views::root_view(sched, ctx, &mut app)
+    })
+}
+
+/// Android entry: logger + window insets, then the shared shell.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "C" fn android_main(android_app: winit::platform::android::activity::AndroidApp) {
+    android_logger::init_once(
+        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
+    );
+
+    rlobkit_app_events::insets::set_on_insets(Box::new(|insets| {
+        let r = repose_core::locals::WindowInsets {
+            top: insets.top,
+            bottom: insets.bottom,
+            left: insets.left,
+            right: insets.right,
+            ime_bottom: insets.ime_bottom,
+        };
+        repose_core::locals::set_window_insets_default(r);
+    }));
+
+    let mut app = boot_app();
+    let boot_at = Instant::now();
+    let mut last = boot_at;
+    let mut last_overlay = Overlay::None;
+    let _ = repame_shell::run_android(android_app, move |sched, ctx| {
+        let now = Instant::now();
+        let dt = now.duration_since(last).as_secs_f32().min(0.25);
+        last = now;
+        pump(&mut app, dt, now.duration_since(boot_at), &mut last_overlay);
+        views::root_view(sched, ctx, &mut app)
+    });
+}
+
+/// Build the app and boot save/i18n/audio before the first frame.
+fn boot_app() -> PilotApp {
+    let mut app = PilotApp::new();
+    boot_from_save(&mut app);
+    app
+}
+
+/// One frame: boot phases, sim ticks, stingers, music intensity.
+fn pump(app: &mut PilotApp, dt_secs: f32, elapsed: Duration, last_overlay: &mut Overlay) {
+    advance_boot_phase(app, elapsed);
+    app.advance(dt_secs);
+    poll_overlay_stingers(app, last_overlay);
+    app.audio.set_intensity(progress(app));
+    app.audio.update(dt_secs);
+}
+
 /// Load save (if any) into the UI share, language, and audio channels.
-#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 fn boot_from_save(app: &mut PilotApp) {
     let data = save::load();
     if let Ok(mut ui) = app.sim.world.resource::<super::state::UiShare>().ui.lock() {
@@ -61,7 +118,6 @@ fn boot_from_save(app: &mut PilotApp) {
 
 /// Splash -> Loading -> Title on wall-clock timers. Only moves forward
 /// (never yanks an in-progress game back to title).
-#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 fn advance_boot_phase(app: &mut PilotApp, elapsed: Duration) {
     let Ok(mut ui) = app.sim.world.resource::<super::state::UiShare>().ui.lock() else {
         return;
@@ -76,7 +132,6 @@ fn advance_boot_phase(app: &mut PilotApp, elapsed: Duration) {
 }
 
 /// One-shot stingers on overlay transitions (win/lose moments).
-#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 fn poll_overlay_stingers(app: &mut PilotApp, last_overlay: &mut Overlay) {
     let overlay = app
         .sim
@@ -93,7 +148,6 @@ fn poll_overlay_stingers(app: &mut PilotApp, last_overlay: &mut Overlay) {
     }
 }
 
-#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 fn progress(app: &PilotApp) -> f32 {
     app.sim
         .world
@@ -102,12 +156,6 @@ fn progress(app: &PilotApp) -> f32 {
         .lock()
         .map(|ui| ui.progress)
         .unwrap_or(0.0)
-}
-
-/// Mobile/web fallback: the pilot shell has no runner there.
-#[cfg(any(target_os = "android", target_arch = "wasm32"))]
-pub fn run() -> anyhow::Result<()> {
-    anyhow::bail!("rozvp-repose pilot shell is desktop-only")
 }
 
 #[cfg(test)]

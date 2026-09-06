@@ -9,7 +9,7 @@ use super::state::{
     AdviceStage, AdviceState, Board, FlowControl, FrameTicks, Overlay, SeedBankRuntime, SeedSlot,
     Stage, SunStats, UiShare, WaveState,
 };
-use crate::game::constants::*;
+use crate::pilot::constants::*;
 
 // ---- wave director (mirrors zombie.rs) ----
 
@@ -415,9 +415,7 @@ pub fn tick_advice(
         let (text, visible) = match advice.stage {
             AdviceStage::NightIntro => ("advice-night-intro".to_string(), true),
             AdviceStage::ClickSun => ("advice-click-sun".to_string(), true),
-            AdviceStage::PlantSunflower => {
-                ("advice-plant-sunflower".to_string(), true)
-            }
+            AdviceStage::PlantSunflower => ("advice-plant-sunflower".to_string(), true),
             AdviceStage::ZombiesComing => ("advice-zombies-coming".to_string(), true),
             AdviceStage::HugeWave => ("advice-huge-wave".to_string(), true),
             AdviceStage::Done => (String::new(), false),

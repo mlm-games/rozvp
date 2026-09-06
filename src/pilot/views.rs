@@ -17,7 +17,7 @@ use repose_ui::{Box as UiBox, Column, Row, Spacer, Text, TextStyle, ViewExt, ZSt
 use super::render::frame_input;
 use super::sim::PilotApp;
 use super::state::{Overlay, PilotPhase};
-use crate::game::constants::{BOARD_HEIGHT, BOARD_WIDTH};
+use crate::pilot::constants::{BOARD_HEIGHT, BOARD_WIDTH};
 
 /// Root view: splash, loading, title, or game, plus a standing frame
 /// request (continuous game loop; sim time advances in the runner).
@@ -881,7 +881,7 @@ fn confirm_chooser(app: &mut PilotApp) {
                 selected: false,
             });
         }
-        ui.sun = super::super::game::constants::STARTING_SUN;
+        ui.sun = super::super::pilot::constants::STARTING_SUN;
         ui.progress = 0.0;
         ui.flags_done = 0;
         ui.shovel_selected = false;

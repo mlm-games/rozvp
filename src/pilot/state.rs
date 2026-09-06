@@ -13,7 +13,7 @@ use repame_sim::bevy_ecs::prelude::*;
 use repame_sim::bevy_ecs::resource::IsResource;
 
 use super::comps::PlantKind;
-use crate::game::constants::{
+use crate::pilot::constants::{
     FIRST_WAVE_DELAY_TICKS, LAWN_COLS, LAWN_ROWS, SKY_SUN_INTERVAL_TICKS, STARTING_SUN,
 };
 
@@ -99,7 +99,7 @@ impl Board {
 /// Logic-space helpers. Same formulas as `game::board` (top-left origin,
 /// y-down, pixels); duplicated here to keep the pilot bevy-type-free.
 pub fn logic_to_grid(logic_x: f32, logic_y: f32) -> Option<(usize, usize)> {
-    use crate::game::constants::{GRID_CELL_H, GRID_CELL_W, LAWN_XMIN, LAWN_YMIN};
+    use crate::pilot::constants::{GRID_CELL_H, GRID_CELL_W, LAWN_XMIN, LAWN_YMIN};
     if logic_x < LAWN_XMIN || logic_y < LAWN_YMIN {
         return None;
     }
@@ -113,7 +113,7 @@ pub fn logic_to_grid(logic_x: f32, logic_y: f32) -> Option<(usize, usize)> {
 }
 
 pub fn grid_center_logic(col: usize, row: usize) -> (f32, f32) {
-    use crate::game::constants::{GRID_CELL_H, GRID_CELL_W, LAWN_XMIN, LAWN_YMIN};
+    use crate::pilot::constants::{GRID_CELL_H, GRID_CELL_W, LAWN_XMIN, LAWN_YMIN};
     (
         LAWN_XMIN + col as f32 * GRID_CELL_W + GRID_CELL_W * 0.5,
         LAWN_YMIN + row as f32 * GRID_CELL_H + GRID_CELL_H * 0.5,
@@ -121,7 +121,7 @@ pub fn grid_center_logic(col: usize, row: usize) -> (f32, f32) {
 }
 
 pub fn row_center_y(row: usize) -> f32 {
-    use crate::game::constants::{GRID_CELL_H, LAWN_YMIN};
+    use crate::pilot::constants::{GRID_CELL_H, LAWN_YMIN};
     LAWN_YMIN + row as f32 * GRID_CELL_H + GRID_CELL_H * 0.5
 }
 
