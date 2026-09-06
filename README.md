@@ -33,7 +33,8 @@ src/
     ├── runner.rs    # desktop/web/android entries
     ├── save.rs      # save.ron via game-utils SaveStore
     ├── i18n.rs      # Fluent bundles, translators edit FTL only
-    └── audio.rs     # repame-audio engine + synth cue bank
+    ├── audio.rs     # repame-audio engine + synth cue bank
+    └── fx.rs        # combat juice presets + fx step (repame-fx)
 ```
 
 ## Notes
@@ -42,6 +43,8 @@ src/
   `SaveData` shape as before, so old `save.ron` files still load.
 - **i18n**: 7 locales under `assets/locales`, per-key English fallback.
 - **Audio**: synth cues at boot; real packs drop into the bank later.
+- **Feel**: particles, trauma shake, flash, floaters, transitions
+  (`repame-fx`; easing via `easer`, noise via `noise`).
 - **Stack**: `repose 0.29`, `repame` + `renamite` (path), `game-utils`
   (git rev, `storage`/`save_store` APIs).
 
