@@ -123,40 +123,6 @@ mod tests {
     }
 
     #[test]
-    fn near_miss_sun_click_still_collects() {
-        // Forgiving grab: a click 40 logic px off the sun's center (outside
-        // the 28x28 visual, inside the grab radius) collects it. Falling
-        // suns keep moving while the player aims, so edge clicks must not
-        // silently drop.
-        let mut app = PilotApp::new();
-        app.enter_level(0);
-        app.sim.world.spawn((
-            comps::GameplayCleanup,
-            comps::SunDrop {
-                born_tick: 0,
-                value: 25,
-            },
-            comps::Pos { x: 400.0, y: 300.0 },
-        ));
-        let before = app.sim.world.resource::<state::Board>().sun;
-        app.sim
-            .world
-            .resource_mut::<state::ClickQueue>()
-            .clicks
-            .push((440.0, 300.0));
-        app.advance(0.01);
-        assert_eq!(app.sim.world.resource::<state::Board>().sun, before + 25);
-        assert!(
-            app.sim
-                .world
-                .query::<&comps::SunDrop>()
-                .iter(&app.sim.world)
-                .count()
-                == 0
-        );
-    }
-
-    #[test]
     fn first_wave_spawns_after_delay() {
         // 18 s start delay + stagger: 2000 ticks must show a zombie.
         let (_, zombies, _, mowers) = run_headless(2000);

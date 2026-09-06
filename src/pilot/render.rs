@@ -5,7 +5,7 @@
 //! (`rigs`), not batches.
 
 use repame_sim::bevy_ecs::prelude::*;
-use repame_sprite::{Camera2d, FrameInput, SpriteInstance};
+use repame_sprite::{Camera2d, FrameInput, SpriteInstance, WorldText};
 
 use super::comps::*;
 use super::state::*;
@@ -34,9 +34,11 @@ pub fn board_camera() -> Camera2d {
 
 pub fn frame_input(world: &mut World, viewport_px: [f32; 2]) -> FrameInput {
     let mut sprites = Vec::new();
-    let board = world.resource::<Board>();
+    // Copy out: holding the resource borrow across the queries below
+    // would collide with their mutable world borrows.
+    let stage = world.resource::<Board>().stage;
     // Lawn checkerboard + porch (stage-tinted, mirrors bevy spawn).
-    let (tile_a, tile_b, porch) = match board.stage {
+    let (tile_a, tile_b, porch) = match stage {
         Stage::Day => (
             [0.385, 0.635, 0.235, 1.0],
             [0.345, 0.585, 0.215, 1.0],
@@ -144,10 +146,28 @@ pub fn frame_input(world: &mut World, viewport_px: [f32; 2]) -> FrameInput {
         cam.center.y += dy;
     }
     let overlay_color = world.resource::<repame_fx::Flash>().rgba();
+    // Damage floaters ride the same world transform as sprites (drawn by
+    // the viewport from this snapshot, not by game-side canvas code).
+    let mut texts = Vec::new();
+    let mut numbers = world.query::<&repame_fx::DamageNumber>();
+    for n in numbers.iter(world) {
+        texts.push(WorldText {
+            text: n.text.clone(),
+            pos: glam::Vec2::new(n.x, n.y),
+            color: n.color,
+            size: 16.0,
+        });
+    }
     FrameInput {
         cam,
+        world_size: [BOARD_WIDTH, BOARD_HEIGHT],
         viewport_px,
         sprites,
+        texts,
+        background: Some(match stage {
+            Stage::Day => [0.345, 0.585, 0.215, 1.0],
+            Stage::Night => [0.16, 0.27, 0.20, 1.0],
+        }),
         overlay_color,
     }
 }

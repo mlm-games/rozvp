@@ -7,7 +7,7 @@ use repame_sim::bevy_ecs::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use super::comps::{Dying, Eating};
+use super::comps::{Dying, Eating, Zombie};
 use super::sim::PilotApp;
 use super::state::RigEntry;
 
@@ -16,13 +16,17 @@ const ZOMBIE_REN: &str = include_str!("../../assets/anims/zombie.ren");
 /// Reconcile rig hosts with sim zombies after a tick batch:
 /// drop hosts for despawned entities, spawn hosts for newcomers,
 /// push marker state into machine inputs, tick playback.
+///
+/// The `&Zombie` bound is load-bearing: bare `Has` filters match every
+/// entity, which used to mint (and per-frame tick) a full `.ren` host for
+/// each pea, sun, plant, and particle — a parse plus a machine eval each.
 pub fn sync_rigs(app: &mut PilotApp) {
     let live: Vec<(Entity, bool, bool)> = app
         .sim
         .world
-        .query::<(Entity, Has<Eating>, Has<Dying>)>()
+        .query::<(Entity, &Zombie, Has<Eating>, Has<Dying>)>()
         .iter(&app.sim.world)
-        .map(|(e, eating, dying)| (e, eating, dying))
+        .map(|(e, _, eating, dying)| (e, eating, dying))
         .collect();
     let live_set: std::collections::HashSet<Entity> = live.iter().map(|(e, _, _)| *e).collect();
     app.rigs.hosts.retain(|e, _| live_set.contains(e));

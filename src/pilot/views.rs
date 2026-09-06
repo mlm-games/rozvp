@@ -1,21 +1,20 @@
 //! Pilot views: board canvas, HUD, menus, overlays. Presentational only:
 //! reads sim + UI share, writes UI share + click queue + flow control.
 //!
-//! Coordinate convention: 1 logic px == 1 dp. The board canvas is a fixed
-//! 800x600 region; pointer positions (physical px, region-relative) map
-//! through `px_to_dp` straight onto logic coords.
+//! Coordinate convention: 1 logic px == 1 dp. Unit discipline lives in
+//! `repame-sprite` (`Viewport2d` owns the px/dp bridge); game code works
+//! purely in logic units and never touches physical px.
 //!
 //! Chrome styling mirrors the previous repose-bevy UI (`menus/mod.rs`):
 //! wood panels, parchment seed packets, sun badge, advice banner, and
 //! centered scrim modals — adapted to the pilot's `&mut PilotApp` closure
 //! style (raw-pointer `apply_act` dispatches).
 
-use std::rc::Rc;
 use std::time::Duration;
 
 use fluent_bundle::FluentArgs;
+use repame_sprite::{PickEvent, Viewport2d};
 use repose_canvas::Canvas;
-use repose_core::locals::px_to_dp;
 use repose_core::prelude::{AlignItems, AnimationSpec, Easing, JustifyContent, Modifier};
 use repose_core::{
     Color, CursorIcon, FontWeight, Modifier as CoreModifier, Rect, RenderContext, Scheduler,
@@ -537,116 +536,55 @@ fn game_view(app: &mut PilotApp, ctx: &RenderContext) -> View {
     ))
 }
 
-/// Aspect-fit mapping of the 800x600 logic board into a canvas: uniform
-/// scale plus centering offsets, all in dp.
-fn board_fit_for(canvas_w: f32, canvas_h: f32) -> (f32, f32, f32) {
-    if canvas_w <= 0.0 || canvas_h <= 0.0 {
-        return (1.0, 0.0, 0.0);
-    }
-    let s = (canvas_w / BOARD_WIDTH).min(canvas_h / BOARD_HEIGHT);
-    let s = s.clamp(0.1, 8.0);
-    (
-        s,
-        (canvas_w - BOARD_WIDTH * s) * 0.5,
-        (canvas_h - BOARD_HEIGHT * s) * 0.5,
-    )
-}
-
-/// Lawn + entities painted to canvas from the frame producers. The canvas
-/// fills the window; the lawn is aspect-fit centered with a stage-tinted
-/// grass backdrop covering the letterbox margins.
+/// Lawn + entities through the framework viewport: sprites, world texts,
+/// backdrop and flash tint all share the viewport's dp fit, and picks
+/// arrive back in world coords — no game-side unit math. Unit discipline
+/// lives in `repame-sprite` (`Viewport2d`); this layer only wires the sim
+/// snapshot in and the click queue out.
+///
+/// The transition fade is transform-free (a fullscreen black rect), so it
+/// stays a trivial overlay canvas game-side rather than growing the
+/// framework snapshot.
 fn board_layer(app: &mut PilotApp) -> View {
     let input = frame_input(&mut app.sim.world, [BOARD_WIDTH, BOARD_HEIGHT]);
-    let sprites = Rc::new(input.sprites);
-    let backdrop = match app.sim.world.resource::<super::state::Board>().stage {
-        super::state::Stage::Night => [0.16, 0.27, 0.20, 1.0],
-        super::state::Stage::Day => [0.345, 0.585, 0.215, 1.0],
-    };
-    // Damage floaters, snapshotted for the draw closure.
-    let numbers: Rc<Vec<(String, f32, f32, [f32; 4])>> = Rc::new(
-        app.sim
-            .world
-            .query::<&repame_fx::DamageNumber>()
-            .iter(&app.sim.world)
-            .map(|n| (n.text.clone(), n.x, n.y, n.color))
-            .collect(),
-    );
     // Transition fade alpha (0 = no cover).
     let fade = app.sim.world.resource::<repame_fx::TransitionFx>().alpha();
     let fit_cell = app.board_fit.clone();
-    let click_fit = fit_cell.clone();
     let app_ptr = app as *mut PilotApp;
-    let modifier = Modifier::new().fill_max_size().on_pointer_down(
-        move |ev: repose_core::input::PointerEvent| {
-            let p = ev.position;
-            let dp_x = px_to_dp(p.x);
-            let dp_y = px_to_dp(p.y);
-            let (s, ox, oy) = click_fit.get();
-            let logic_x = (dp_x - ox) / s;
-            let logic_y = (dp_y - oy) / s;
-            // SAFETY: synchronous compose-time dispatch only.
-            let app = unsafe { &mut *app_ptr };
-            app.sim
-                .world
-                .resource_mut::<super::state::ClickQueue>()
-                .clicks
-                .push((logic_x, logic_y));
-        },
-    );
-    Canvas(modifier, move |scope: &mut repose_canvas::DrawScope| {
-        let (s, ox, oy) = board_fit_for(scope.size.width, scope.size.height);
-        fit_cell.set((s, ox, oy));
-        // Grass backdrop over the whole canvas (margins included).
-        scope.draw_rect(
-            Rect {
-                x: 0.0,
-                y: 0.0,
-                w: scope.size.width,
-                h: scope.size.height,
+    let board = Viewport2d(input, fit_cell, move |ev| {
+        let PickEvent::Click { world, .. } = ev else {
+            return;
+        };
+        // SAFETY: synchronous compose-time dispatch only.
+        let app = unsafe { &mut *app_ptr };
+        app.sim
+            .world
+            .resource_mut::<super::state::ClickQueue>()
+            .clicks
+            .push((world.x, world.y));
+    });
+    if fade <= 0.001 {
+        return board;
+    }
+    let alpha = (fade.clamp(0.0, 1.0) * 255.0) as u8;
+    ZStack(Modifier::new().fill_max_size()).child((
+        board,
+        Canvas(
+            Modifier::new().fill_max_size().hit_passthrough(),
+            move |scope: &mut repose_canvas::DrawScope| {
+                scope.draw_rect(
+                    Rect {
+                        x: 0.0,
+                        y: 0.0,
+                        w: scope.size.width,
+                        h: scope.size.height,
+                    },
+                    Color::from_rgba(0, 0, 0, alpha),
+                    0.0,
+                );
             },
-            rgba(backdrop),
-            0.0,
-        );
-        for spr in sprites.iter() {
-            let w = spr.size.x * s;
-            let h = spr.size.y * s;
-            scope.draw_rect(
-                Rect {
-                    x: ox + (spr.center.x - spr.size.x * 0.5) * s,
-                    y: oy + (spr.center.y - spr.size.y * 0.5) * s,
-                    w,
-                    h,
-                },
-                rgba(spr.color),
-                0.0,
-            );
-        }
-        // Damage floaters as canvas text, same fit transform.
-        for (text, x, y, color) in numbers.iter() {
-            scope.draw_text(
-                text.clone(),
-                repose_core::Vec2 {
-                    x: ox + x * s,
-                    y: oy + y * s,
-                },
-                rgba(*color),
-                16.0 * s,
-            );
-        }
-        // Transition fade over everything board-side.
-        if fade > 0.001 {
-            scope.draw_rect(
-                Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    w: scope.size.width,
-                    h: scope.size.height,
-                },
-                Color::from_rgba(0, 0, 0, (fade.clamp(0.0, 1.0) * 255.0) as u8),
-                0.0,
-            );
-        }
-    })
+        ),
+    ))
 }
 
 fn rgba(c: [f32; 4]) -> Color {
@@ -1144,11 +1082,15 @@ fn overlay_layer(app: &mut PilotApp) -> View {
         Overlay::Credits => "ingame_credits",
         Overlay::None => "none",
     };
-    ZStack(Modifier::new().fill_max_size().hit_passthrough()).child(AnimatedVisibility(
-        true,
-        modal,
-        popup_anim_config(key),
-    ))
+    ZStack(
+        Modifier::new()
+            .fill_max_size()
+            .hit_passthrough()
+            // Above rigs (5) and HUD (10-12): the scrim must dim every
+            // zombie and panel, per `game_view` ("modals over everything").
+            .render_z_index(20.0),
+    )
+    .child(AnimatedVisibility(true, modal, popup_anim_config(key)))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1840,5 +1782,94 @@ mod tests {
         // French has none yet: truncated translated name, not English.
         assert!(app.i18n.set_language("fr"));
         assert_eq!(super::short_seed(&app, "Sunflower"), "Tour");
+    }
+
+    /// Headless paint proof for the live zombie rig: run the surface
+    /// painter into a real `Scene` and check it emits vector geometry
+    /// centered on the sim `Pos` (no missing zombie, no lane offset).
+    #[test]
+    fn zombie_rig_paints_geometry_on_its_lane() {
+        use super::super::comps::{GameplayCleanup, Pos, Zombie, ZombieKind};
+        use super::super::state::row_center_y;
+
+        let mut app = PilotApp::new();
+        app.enter_level(0);
+        let (zx, zy) = (700.0, row_center_y(0));
+        let e = app
+            .sim
+            .world
+            .spawn((
+                GameplayCleanup,
+                Zombie::new(ZombieKind::Normal, 0),
+                Pos { x: zx, y: zy },
+            ))
+            .id();
+        app.advance(0.05);
+        assert!(
+            app.rigs.hosts.contains_key(&e),
+            "sync mints exactly one host per zombie"
+        );
+        assert_eq!(app.rigs.hosts.len(), 1, "no hosts for non-zombies");
+        // The zombie walks left during the advance: read live pos.
+        let (zx, zy) = {
+            let mut q = app.sim.world.query::<(&Pos, &Zombie)>();
+            let world = &app.sim.world;
+            let (pos, _) = q.iter(world).next().expect("zombie alive");
+            (pos.x, pos.y)
+        };
+
+        let ctx = RenderContext::new();
+        // Headless: board canvas never painted, so fit is identity.
+        let view = super::rigs_layer(&mut app, &ctx);
+        assert_eq!(view.children.len(), 1);
+        let surface = &view.children[0];
+        // 64x80 box centered on the sim pos.
+        assert_eq!(surface.modifier.offset_left, Some(zx - 32.0));
+        assert_eq!(surface.modifier.offset_top, Some(zy - 40.0));
+        let canvas = surface
+            .children
+            .iter()
+            .find(|c| c.modifier.painter.is_some())
+            .expect("surface wraps a paint canvas");
+        let painter = canvas.modifier.painter.clone().unwrap();
+        let mut scene = repose_core::Scene::default();
+        let rect = repose_core::Rect {
+            x: zx - 32.0,
+            y: zy - 40.0,
+            w: 64.0,
+            h: 80.0,
+        };
+        painter(&mut scene, rect, 1.0);
+
+        let mut count = 0;
+        let (mut min_x, mut min_y) = (f32::INFINITY, f32::INFINITY);
+        let (mut max_x, mut max_y) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+        for node in &scene.nodes {
+            if let repose_core::SceneNode::VectorMesh {
+                mesh, transform, ..
+            } = node
+            {
+                let [a, b, c, d, tx, ty] = *transform;
+                for v in mesh.vertices.iter() {
+                    let x = a * v.pos[0] + c * v.pos[1] + tx;
+                    let y = b * v.pos[0] + d * v.pos[1] + ty;
+                    min_x = min_x.min(x);
+                    min_y = min_y.min(y);
+                    max_x = max_x.max(x);
+                    max_y = max_y.max(y);
+                    count += 1;
+                }
+            }
+        }
+        assert!(count > 100, "zombie must paint real geometry, got {count}");
+        let (cx, cy) = ((min_x + max_x) * 0.5, (min_y + max_y) * 0.5);
+        assert!(
+            (cx - zx).abs() < 16.0,
+            "paint centered horizontally on sim x: {cx} vs {zx}"
+        );
+        assert!(
+            (cy - zy).abs() < 8.0,
+            "paint centered vertically on sim lane: {cy} vs {zy}"
+        );
     }
 }
