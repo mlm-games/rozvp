@@ -3,7 +3,7 @@ name = "rozvp"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0"
-description = "RoZVP: a Plants vs. Zombies reimplementation on Repose + repame"
+description = "a PvZ reimplementation on repame (was bevy before)"
 repository = "https://github.com/mlm-games/rozvp"
 readme = "README.md"
 keywords = ["gamedev", "game", "2d", "repose"]
@@ -25,14 +25,14 @@ repose-material = "0.29"
 repose-render-wgpu = "0.29"
 repose-canvas = "0.29"
 game-utils = { git = "https://github.com/mlm-games/game-utils", rev = "f8a11ea087d2d65f165b3f641ada15860025c7a5" }
-repame-sim = { path = "../repame/crates/repame-sim", version = "0.1" }
-repame-shell = { path = "../repame/crates/repame-shell", version = "0.1" }
-repame-actors = { path = "../repame/crates/repame-actors", version = "0.1" }
-repame-sprite = { path = "../repame/crates/repame-sprite", version = "0.1" }
-repame-audio = { path = "../repame/crates/repame-audio", version = "0.1" }
-repame-fx = { path = "../repame/crates/repame-fx", version = "0.1" }
-repame-input = { path = "../repame/crates/repame-input", version = "0.1" }
-renamite-player-ui = { path = "../renamite/crates/renamite-player-ui", version = "0.2" }
+repame-sim = { version = "0.1" }
+repame-shell = { version = "0.1" }
+repame-actors = { version = "0.1" }
+repame-sprite = { version = "0.1" }
+repame-audio = { version = "0.1" }
+repame-fx = { version = "0.1" }
+repame-input = { version = "0.1" }
+renamite-player-ui = { version = "0.2" }
 glam = "0.33"
 rand = "0.10"
 ron = "0.8"
