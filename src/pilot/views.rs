@@ -10,7 +10,7 @@
 //! centered scrim modals — adapted to the pilot's `&mut PilotApp` closure
 //! style (raw-pointer `apply_act` dispatches).
 
-use std::time::Duration;
+use web_time::Duration;
 
 use fluent_bundle::FluentArgs;
 use repame_sprite::{ActorFrame, PickEvent, Viewport2d};

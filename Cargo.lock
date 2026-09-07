@@ -4024,6 +4024,7 @@ dependencies = [
  "serde",
  "unic-langid",
  "wasm-bindgen",
+ "web-time",
  "winit",
 ]
 

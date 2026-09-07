@@ -42,6 +42,7 @@ fluent-bundle = "0.16"
 unic-langid = "0.9"
 anyhow = "1"
 log = "0.4"
+web-time = "1"
 serde = { version = "1", features = ["derive"] }
 
 [target.'cfg(all(target_family = "wasm", any(target_os = "unknown", target_os = "none")))'.dependencies]

@@ -6,7 +6,8 @@
 //! run on wall-clock timers. Gamepad input flows through the platform
 //! runner (`gamepad` feature); pointer input arrives as view events.
 
-use std::time::{Duration, Instant};
+use web_time::Duration;
+use web_time::Instant;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;

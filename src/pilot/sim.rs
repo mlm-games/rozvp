@@ -4,7 +4,7 @@
 
 use std::cell::Cell;
 use std::rc::Rc;
-use std::time::Duration;
+use web_time::Duration;
 
 use repame_shell::Sim;
 use repame_sim::bevy_ecs::prelude::*;
