@@ -30,11 +30,11 @@ pub struct PilotApp {
     pub audio: PilotAudio,
     pub i18n: Localizer,
     accumulator: f32,
-    /// Board fit for the current window: `(scale, offset_x, offset_y)` in
-    /// dp. Written by `Viewport2d` at paint time (it alone owns the
-    /// px/dp bridge), read at compose time for rig layout. Lags a resize
-    /// by at most one frame.
-    pub board_fit: Rc<Cell<(f32, f32, f32)>>,
+    /// Board frame geometry for the current window: dp contain-fit plus
+    /// look-point shift. Written by `Viewport2d` at paint time (it alone
+    /// owns the px/dp bridge), read at compose time for rig layout.
+    /// Lags a resize by at most one frame.
+    pub board_fit: Rc<Cell<repame_sprite::FrameGeom>>,
 }
 
 impl PilotApp {
@@ -112,7 +112,7 @@ impl PilotApp {
             audio: PilotAudio::new(),
             i18n: Localizer::new(),
             accumulator: 0.0,
-            board_fit: Rc::new(Cell::new((1.0, 0.0, 0.0))),
+            board_fit: Rc::new(Cell::new(repame_sprite::FrameGeom::default())),
         }
     }
 

@@ -62,17 +62,25 @@ impl Default for SaveData {
 
 /// Save directory: platform data dir, temp fallback (mirrors rustbox
 /// `levels_dir`). On wasm `ProjectDirs` is `None` and `FsStorage` routes
-/// to OPFS; the dir value is only a namespace there.
+/// to OPFS; the dir value is only a namespace there. On Android the stored
+/// runtime path wins, then the Godot-`user://`-equivalent hardcoded path.
 pub fn save_dir() -> PathBuf {
-    if let Some(proj) = directories::ProjectDirs::from("com", "mlm-games", "rozvp") {
-        let dir = proj.data_dir().to_path_buf();
-        if std::fs::create_dir_all(&dir).is_ok() {
-            return dir;
-        }
+    #[cfg(target_os = "android")]
+    {
+        return game_utils::android_data_dir("org.rozvp.app");
     }
-    let dir = std::env::temp_dir().join("com-mlm-games-rozvp");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+    #[cfg(not(target_os = "android"))]
+    {
+        if let Some(proj) = directories::ProjectDirs::from("com", "mlm-games", "rozvp") {
+            let dir = proj.data_dir().to_path_buf();
+            if std::fs::create_dir_all(&dir).is_ok() {
+                return dir;
+            }
+        }
+        let dir = std::env::temp_dir().join("com-mlm-games-rozvp");
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    }
 }
 
 fn store_in(dir: &Path) -> SaveStore<FsStorage> {

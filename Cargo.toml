@@ -24,7 +24,7 @@ repose-ui = "0.29"
 repose-material = "0.29"
 repose-render-wgpu = "0.29"
 repose-canvas = "0.29"
-game-utils = { git = "https://github.com/mlm-games/game-utils", rev = "334c1ab2ccd89d7ffd45bfd646a39d4525b15c2e" }
+game-utils = { git = "https://github.com/mlm-games/game-utils", rev = "f8a11ea087d2d65f165b3f641ada15860025c7a5" }
 repame-sim = { path = "../repame/crates/repame-sim", version = "0.1" }
 repame-shell = { path = "../repame/crates/repame-shell", version = "0.1" }
 repame-actors = { path = "../repame/crates/repame-actors", version = "0.1" }
@@ -54,6 +54,7 @@ getrandom_02 = { version = "0.2", features = ["js"], package = "getrandom" }
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15"
 rlobkit-app-events = { version = "0.5", features = ["jni-bridge"] }
+winit = "0.30"
 
 [package.metadata.android]
 package = "org.rozvp.app"

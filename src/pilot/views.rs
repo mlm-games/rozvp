@@ -13,7 +13,7 @@
 use std::time::Duration;
 
 use fluent_bundle::FluentArgs;
-use repame_sprite::{PickEvent, Viewport2d};
+use repame_sprite::{ActorFrame, PickEvent, Viewport2d};
 use repose_canvas::Canvas;
 use repose_core::prelude::{AlignItems, AnimationSpec, Easing, JustifyContent, Modifier};
 use repose_core::{
@@ -600,9 +600,10 @@ fn rgba(c: [f32; 4]) -> Color {
 ///
 /// Each rig paints through [`zombie_actor_view`]: a transparent canvas with
 /// no editor chrome (the old `RenamitePlayer` embed painted an opaque
-/// background plus a checkerboard artboard, i.e. the black square). Layout
-/// is absolute in the same aspect-fit space as the board canvas, so the
-/// surface tracks the sim `Pos` while moving.
+/// background plus a checkerboard artboard, i.e. the black square).
+/// Surfaces are positioned by the framework (`ActorFrame`) through the
+/// viewport's shared geometry, so they track the sim `Pos` while moving —
+/// glued to sprites and picks even under camera shake.
 fn rigs_layer(app: &mut PilotApp, ctx: &RenderContext) -> View {
     use super::comps::{Pos, Zombie};
     // Entity-keyed pass (queries borrow world; hosts live outside it).
@@ -621,25 +622,18 @@ fn rigs_layer(app: &mut PilotApp, ctx: &RenderContext) -> View {
         out
     };
     let mut views = Vec::new();
-    // Same aspect-fit space as the board canvas (see `board_layer`).
-    let (s, ox, oy) = app.board_fit.get();
+    let geom = app.board_fit.clone();
     for (x, y, hypnotized, host) in items {
         // 64x80 surface, artboard 256x320 scaled by host.view (0.25).
-        // `.absolute()` is load-bearing: without it taffy ignores the
-        // offsets and every zombie stacks at the same fixed spot.
-        let mut modifier = Modifier::new().size(64.0 * s, 80.0 * s).absolute().offset(
-            Some(ox + (x - 32.0) * s),
-            Some(oy + (y - 40.0) * s),
-            None,
-            None,
-        );
         // The rig faces right; the horde walks left, so mirror around the
         // surface center exactly like the old `sprite.flip_x` did.
-        if !hypnotized {
-            modifier = modifier.scale2(-1.0, 1.0);
-        }
-        let surface = UiBox(modifier).child(zombie_actor_view(host, ctx.clone()));
-        views.push(surface);
+        views.push(ActorFrame(
+            [x, y],
+            [64.0, 80.0],
+            geom.clone(),
+            !hypnotized,
+            zombie_actor_view(host, ctx.clone()),
+        ));
     }
     ZStack(
         Modifier::new()
