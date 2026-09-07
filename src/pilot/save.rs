@@ -61,15 +61,20 @@ impl Default for SaveData {
 }
 
 /// Save directory: platform data dir, temp fallback (mirrors rustbox
-/// `levels_dir`). On wasm `ProjectDirs` is `None` and `FsStorage` routes
-/// to OPFS; the dir value is only a namespace there. On Android the stored
+/// `levels_dir`). On wasm this is only a namespace for the OPFS
+/// `localStorage` backend: no `ProjectDirs` / `std::fs` / `temp_dir` calls,
+/// all of which panic on `wasm32-unknown-unknown`. On Android the stored
 /// runtime path wins, then the Godot-`user://`-equivalent hardcoded path.
 pub fn save_dir() -> PathBuf {
     #[cfg(target_os = "android")]
     {
         return game_utils::android_data_dir("org.rozvp.app");
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_arch = "wasm32")]
+    {
+        return PathBuf::from("rozvp");
+    }
+    #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
     {
         if let Some(proj) = directories::ProjectDirs::from("com", "mlm-games", "rozvp") {
             let dir = proj.data_dir().to_path_buf();
