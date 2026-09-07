@@ -12,6 +12,7 @@ pub mod constants;
 pub mod economy;
 pub mod fx;
 pub mod i18n;
+pub mod input;
 pub mod levels;
 pub mod render;
 pub mod rigs;

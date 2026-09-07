@@ -15,10 +15,12 @@ use std::time::Duration;
 use fluent_bundle::FluentArgs;
 use repame_sprite::{ActorFrame, PickEvent, Viewport2d};
 use repose_canvas::Canvas;
+use repose_core::input::{KeyEvent, KeyEventType};
 use repose_core::prelude::{AlignItems, AnimationSpec, Easing, JustifyContent, Modifier};
+use repose_core::shortcuts::KeyChord;
 use repose_core::{
-    Color, CursorIcon, FontWeight, Modifier as CoreModifier, Rect, RenderContext, Scheduler,
-    TextAlign, View, request_frame,
+    Color, CursorIcon, FocusRequester, FontWeight, Modifier as CoreModifier, Rect, RenderContext,
+    Scheduler, TextAlign, View, remember, request_frame,
 };
 use repose_ui::anim_ext::{
     AnimatedVisibility, AnimatedVisibilityConfig, EnterTransition, ExitTransition,
@@ -50,15 +52,42 @@ pub fn root_view(_sched: &mut Scheduler, ctx: &RenderContext, app: &mut PilotApp
         .lock()
         .map(|ui| ui.phase)
         .unwrap_or(PilotPhase::Title);
-    match phase {
+    let view = match phase {
         PilotPhase::Splash => splash_view(app),
         PilotPhase::Loading => loading_view(app),
         PilotPhase::Title => title_view(app, ctx),
         PilotPhase::InGame => game_view(app, ctx),
-    }
+    };
+    // Focusable root so hardware keys reach the action feed (same shape
+    // as the resims app root). Key events feed `ActionState`; the sim
+    // consumes edges per tick, the runner per frame (pause toggle).
+    let app_ptr = app as *mut PilotApp;
+    let focus = remember(FocusRequester::new);
+    let fr_positioned = (*focus).clone();
+    ZStack(
+        Modifier::new()
+            .fill_max_size()
+            .focusable(true)
+            .focus_requester((*focus).clone())
+            .on_globally_positioned(move |_| {
+                fr_positioned.request_focus();
+            })
+            .on_key_event(move |ke: KeyEvent| {
+                if ke.is_repeat {
+                    return false;
+                }
+                let down = matches!(ke.event_type, KeyEventType::Down);
+                // SAFETY: synchronous compose-time dispatch only.
+                let app = unsafe { &mut *app_ptr };
+                app.sim
+                    .world
+                    .resource_mut::<repame_input::ActionState<super::input::PilotAction>>()
+                    .key(&KeyChord::new(ke.key.clone(), ke.modifiers), down);
+                false
+            }),
+    )
+    .child(view)
 }
-
-// ---- chrome helpers (ported from old menus/mod.rs) ----
 
 fn col(r: u8, g: u8, b: u8) -> Color {
     Color::from_rgba(r, g, b, 255)
@@ -293,8 +322,6 @@ fn packet_tile(
     ))
 }
 
-// ---- splash / loading ----
-
 fn splash_view(app: &mut PilotApp) -> View {
     let _ = app;
     ZStack(Modifier::new().fill_max_size()).child((
@@ -353,8 +380,6 @@ fn short_seed(app: &PilotApp, name: &str) -> String {
     }
     short_name(&t_seed(app, name))
 }
-
-// ---- title hub ----
 
 fn title_view(app: &mut PilotApp, _ctx: &RenderContext) -> View {
     let overlay = app
@@ -682,8 +707,6 @@ fn zombie_actor_view(host: repame_actors::PlayerHostRef, ctx: RenderContext) -> 
         },
     )
 }
-
-// ---- in-game HUD (absolute overlay, old look) ----
 
 fn ingame_hud(app: &mut PilotApp) -> View {
     let (

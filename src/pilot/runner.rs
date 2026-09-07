@@ -12,8 +12,9 @@ use std::time::{Duration, Instant};
 use wasm_bindgen::prelude::*;
 
 use super::audio::Cue;
+use super::input::{CTX_GAMEPLAY, CTX_MENU, PilotAction};
 use super::sim::PilotApp;
-use super::state::{Overlay, PilotPhase};
+use super::state::{FlowControl, Overlay, PilotPhase};
 use super::{save, views};
 
 const SPLASH_SECS: f32 = 1.5;
@@ -97,13 +98,59 @@ fn boot_app() -> PilotApp {
     app
 }
 
-/// One frame: boot phases, sim ticks, stingers, music intensity.
+/// One frame: boot phases, actions, sim ticks, stingers, music intensity.
 fn pump(app: &mut PilotApp, dt_secs: f32, elapsed: Duration, last_overlay: &mut Overlay) {
     advance_boot_phase(app, elapsed);
-    app.advance(dt_secs);
+    poll_pause_action(app);
+    let ran = app.advance(dt_secs);
+    if ran == 0 {
+        // Paused/overlayed: no tick ran `end_tick`, so roll edges here
+        // or the pause key would toggle twice on resume.
+        app.sim
+            .world
+            .resource_mut::<repame_input::ActionState<PilotAction>>()
+            .clear_edges();
+    }
     poll_overlay_stingers(app, last_overlay);
     app.audio.set_intensity(progress(app));
     app.audio.update(dt_secs);
+}
+
+/// Phase contexts + Escape-to-pause. Reads the edge fed by views, flips
+/// the overlay, leaves clearing to the tick (or `pump` when stalled).
+fn poll_pause_action(app: &mut PilotApp) {
+    let phase = app
+        .sim
+        .world
+        .resource::<super::state::UiShare>()
+        .ui
+        .lock()
+        .map(|u| u.phase)
+        .unwrap_or(PilotPhase::Title);
+    let toggle = {
+        let mut state = app
+            .sim
+            .world
+            .resource_mut::<repame_input::ActionState<PilotAction>>();
+        if phase == PilotPhase::InGame {
+            state.set_contexts(&[CTX_GAMEPLAY]);
+        } else {
+            state.set_contexts(&[CTX_MENU]);
+        }
+        state.just_pressed(&PilotAction::PauseToggle)
+    };
+    if !toggle {
+        return;
+    }
+    if phase != PilotPhase::InGame {
+        return;
+    }
+    let mut flow = app.sim.world.resource_mut::<FlowControl>();
+    flow.overlay = match flow.overlay {
+        Overlay::None => Overlay::Pause,
+        Overlay::Pause => Overlay::None,
+        other => other,
+    };
 }
 
 /// Load save (if any) into the UI share, language, and audio channels.
@@ -194,5 +241,42 @@ mod tests {
     fn ingame_never_regresses_to_boot() {
         assert_eq!(phase_after(PilotPhase::InGame, 99.0), PilotPhase::InGame);
         assert_eq!(phase_after(PilotPhase::Title, 99.0), PilotPhase::Title);
+    }
+
+    #[test]
+    fn escape_toggles_pause_while_ingame() {
+        use repose_core::input::{Key, Modifiers};
+        use repose_core::shortcuts::KeyChord;
+        let mut app = PilotApp::new();
+        {
+            let ui = app.sim.world.resource::<UiShare>();
+            let mut guard = ui.ui.lock().unwrap();
+            guard.phase = PilotPhase::InGame;
+        }
+        let esc = KeyChord::new(Key::Escape, Modifiers::default());
+        // Settle contexts first (production sets them every frame; the
+        // first set clears nothing pending).
+        poll_pause_action(&mut app);
+        let mut pause = || {
+            {
+                let mut state = app
+                    .sim
+                    .world
+                    .resource_mut::<repame_input::ActionState<PilotAction>>();
+                state.key(&esc, true);
+            }
+            poll_pause_action(&mut app);
+            {
+                let mut state = app
+                    .sim
+                    .world
+                    .resource_mut::<repame_input::ActionState<PilotAction>>();
+                state.key(&esc, false);
+                state.clear_edges();
+            }
+            app.sim.world.resource::<FlowControl>().overlay
+        };
+        assert_eq!(pause(), Overlay::Pause);
+        assert_eq!(pause(), Overlay::None);
     }
 }

@@ -15,6 +15,7 @@ use super::combat;
 use super::economy;
 use super::fx;
 use super::i18n::Localizer;
+use super::input::{self, PilotAction};
 use super::levels;
 use super::state::{
     AdviceState, Board, ClickConsumedThisFrame, ClickQueue, FlowControl, FrameTicks, GameTime,
@@ -52,6 +53,7 @@ impl PilotApp {
         sim.world.init_resource::<FlowControl>();
         sim.world.init_resource::<UiShare>();
         repame_fx::init_resources(&mut sim.world);
+        repame_input::init_state(&mut sim, input::action_map());
 
         // One chained schedule: a bare `Schedule` does not preserve
         // insertion order for conflicting systems (probed: planting ran
@@ -100,6 +102,9 @@ impl PilotApp {
                     combat::step_dying,
                     // Juice runs on sim time (frozen while paused).
                     fx::step_fx,
+                    // Input edges clear last: compose-fed events survive
+                    // the tick's systems, then roll over.
+                    repame_input::end_tick_system::<PilotAction>,
                 )
                     .chain(),
             )

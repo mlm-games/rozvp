@@ -11,8 +11,6 @@ use super::state::{
 };
 use crate::pilot::constants::*;
 
-// ---- wave director (mirrors zombie.rs) ----
-
 fn zombie_point_cost(kind: ZombieKind) -> u32 {
     match kind {
         ZombieKind::Normal => POINT_NORMAL,
@@ -188,8 +186,6 @@ pub fn advance_or_complete_level(
     }
 }
 
-// ---- level flow tables (copied from level_flow.rs) ----
-
 pub fn level_label(adventure_level: u32) -> String {
     let area = adventure_level / 10 + 1;
     let stage = adventure_level % 10 + 1;
@@ -280,8 +276,6 @@ pub fn build_level_recipes(adventure_level: u32) -> Vec<WaveRecipe> {
         .collect()
 }
 
-// ---- level assembly ----
-
 pub fn load_level(world: &mut World, adventure_level: u32) {
     let stage = stage_for_level(adventure_level);
     world.resource_mut::<Board>().stage = stage;
@@ -358,8 +352,6 @@ fn normalize_progress_ui(ui: &mut super::state::PilotUi) {
         }
     }
 }
-
-// ---- advice ----
 
 pub fn tick_advice(
     frame_ticks: Res<FrameTicks>,
